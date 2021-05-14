@@ -986,6 +986,14 @@ func (api objectAPIHandlers) DeleteBucketHandler(w http.ResponseWriter, r *http.
 		}
 	}
 
+	if globalDNSConfig != nil {
+		if err := globalDNSConfig.Delete(bucket); err != nil {
+			logger.LogIf(ctx, fmt.Errorf("Unable to delete bucket DNS entry %w, please delete it manually", err))
+			writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL, guessIsBrowserReq(r))
+			return
+		}
+	}
+
 	deleteBucket := objectAPI.DeleteBucket
 
 	// Attempt to delete bucket.
@@ -1001,14 +1009,6 @@ func (api objectAPIHandlers) DeleteBucketHandler(w http.ResponseWriter, r *http.
 	}
 
 	globalNotificationSys.DeleteBucketMetadata(ctx, bucket)
-
-	if globalDNSConfig != nil {
-		if err := globalDNSConfig.Delete(bucket); err != nil {
-			logger.LogIf(ctx, fmt.Errorf("Unable to delete bucket DNS entry %w, please delete it manually", err))
-			writeErrorResponse(ctx, w, toAPIError(ctx, err), r.URL, guessIsBrowserReq(r))
-			return
-		}
-	}
 
 	// Write success response.
 	writeSuccessNoContent(w)
