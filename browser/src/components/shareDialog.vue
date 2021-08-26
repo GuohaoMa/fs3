@@ -2,7 +2,6 @@
       <el-dialog title="" top="50px" :visible.sync="shareDialog" :custom-class="{'ShareObjectMobile': shareFileShowMobile, 'ShareObject': 1 === 1}" :before-close="getDiglogChange">
           <div class="shareContent">
               <el-row class="share_left" v-if="shareObjectShow">
-                <!--el-button class="shareFileCoin" @click="shareFileShowFun">Share to Filecoin >></el-button-->
                 <div class="qrcode" id="qrcode" ref="qrCodeUrl"></div>
                 <el-col :span="24" style="margin-bottom: 0.45rem;">
                   <h4>Share Object</h4>
@@ -76,18 +75,6 @@
                      disabled>
                    </el-input>
                  </el-col>
-                <!--el-col :span="24">
-                  <h4 style="margin: 0;">Retrieval from Filecoin Network <i class="el-icon-document-copy"></i></h4>
-                </el-col>
-                <el-col :span="24">
-                  <el-input
-                    type="textarea"
-                    :rows="4"
-                    placeholder=""
-                    v-model="ruleForm.textarea"
-                    disabled>
-                  </el-input>
-                </el-col-->
               </el-row>
           </div>
       </el-dialog>
@@ -151,16 +138,13 @@ export default {
           let _this = this
           document.getElementById("qrcode").innerHTML = ''
           let qrcode = new QRCode(_this.$refs.qrCodeUrl, {
-              text: _this.share_input, // 需要转换为二维码的内容
+              text: _this.share_input, // Content to be converted to QR code
               width: 100,
               height: 100,
               colorDark: '#000000',
               colorLight: '#ffffff',
               correctLevel: QRCode.CorrectLevel.L
           })
-      },
-      copyDealCid() {
-
       },
       shareFileShowFun() {
         this.shareFileShow = !this.shareFileShow
@@ -187,7 +171,7 @@ export default {
                 "FastRetrieval": _this.ruleForm.fastRetirval == '2'? 'false' : 'true',
                 "MinerId": _this.ruleForm.minerId,
                 "Price": _this.ruleForm.price,
-                "Duration": String(_this.ruleForm.duration*24*60*2)   //（UI上用户输入天数，需要转化成epoch给后端。例如10天, 就是 10*24*60*2）
+                "Duration": String(_this.ruleForm.duration*24*60*2)   //（The number of days entered by the user on the UI needs to be converted into epoch to the backend. For example, 10 days is 10*24*60*2）
             }
 
             axios.post(postUrl, minioDeal, {headers: {
@@ -207,7 +191,6 @@ export default {
 
             }).catch(function (error) {
                 console.log(error);
-                // console.log(error.message, error.request, error.response.headers);
             });
 
           } else {
@@ -314,8 +297,8 @@ export default {
                   img {
                       width: 100px;
                       height: 100px;
-                      background-color: #fff; //设置白色背景色
-                      padding: 0; // 利用padding的特性，挤出白边
+                      background-color: #fff;
+                      padding: 0;
                       box-sizing: border-box;
                   }
               }
