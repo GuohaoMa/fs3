@@ -33,7 +33,7 @@ Vue.use(ElementUI, { locale })
 Vue.use(Vuex)
 Vue.use(VueClipboard)
 
-// 使用vue-meta
+// metamask
 import './utils/web3.1.min.js';
 import Web3 from 'web3'
 Vue.prototype.Web3 = Web3
