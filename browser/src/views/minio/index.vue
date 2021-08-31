@@ -991,6 +991,7 @@ export default {
             },
             signOutFun() {
                 this.addr = ''
+                sessionStorage.removeItem('addrWeb')
             },
             send(){
                 let _this = this
@@ -1079,7 +1080,6 @@ export default {
     _this.currentBucketAll = _this.currentBucket.split('/')
     if(sessionStorage.getItem('addrWeb')){
       _this.signFun()
-      console.log(sessionStorage.getItem('addrWeb'))
     }
     _this.fn()
     document.onkeydown = function(e) {
@@ -1147,7 +1147,7 @@ export default {
     font-weight: normal;
     padding: 0 0.07rem;
     cursor: pointer;
-    &:before{
+    &:hover{
       color: rgba(11, 49, 143, 1);
     }
   }

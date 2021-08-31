@@ -6,9 +6,9 @@
 <script>
 export default {
   mounted() {
-    window.onbeforeunload = function(){
+    /* window.onbeforeunload = function(){
       sessionStorage.removeItem('addrWeb')
-    }
+    }*/
   }
 }
 </script>
