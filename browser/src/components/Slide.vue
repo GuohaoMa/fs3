@@ -359,6 +359,9 @@ export default {
     },
     mounted() {
       this.getMinioData()
+      window.onbeforeunload = function(){
+        sessionStorage.removeItem('addrWeb')
+      }
     },
 };
 </script>
