@@ -349,9 +349,8 @@ export default {
                   }
               })
 
-              let postURL01 = 'https://api.filswan.com/miners?location='+_this.parentName+'&status=&sort_by=score&order=ascending&limit=20&offset=0'
               let postURL = 'http://192.168.88.216:5002/miners?location='+_this.parentName+'&status=&sort_by=score&order=ascending&limit=20&offset=0'
-              axios.get(postURL01).then((response) => {
+              axios.get(postURL).then((response) => {
                   let json = response.data.data.miner
                   _this.tableData = json
                   _this.loading = false
@@ -376,9 +375,8 @@ export default {
               }
 
               _this.loading = true
-              let postURL01 = 'https://api.filswan.com/miners?location='+_this.parentName+'&status=&sort_by=score&order=ascending&limit=20&offset='+_this.page*20
               let postURL = 'http://192.168.88.216:5002/miners?location='+_this.parentName+'&status=&sort_by=score&order=ascending&limit=20&offset='+_this.page*20
-              axios.get(postURL01).then((response) => {
+              axios.get(postURL).then((response) => {
                   let json = response.data.data.miner
                   json.map(item => {
                       _this.tableData.push(item)
