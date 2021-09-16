@@ -936,7 +936,7 @@ export default {
               });
 
               web3.eth.net.getId().then(netId => {
-                  console.log('network ID:', netId)
+                  // console.log('network ID:', netId)
                   switch (netId) {
                     case 1:
                       _this.network.name = 'mainnet';
@@ -970,8 +970,12 @@ export default {
                });
             },
             fn() {
+              let _this = this
               ethereum.on("accountsChanged", function(accounts) {
                 console.log('account:', accounts[0]);  //Once the account is switched, it will be executed here
+              });
+              ethereum.on("networkChanged", function(networkID) {
+                 _this.walletInfo()
               });
             },
             qm(){
