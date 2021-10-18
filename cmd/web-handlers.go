@@ -2635,6 +2635,18 @@ type SendResponse struct {
 	Message string             `json:"message"`
 }
 
+type RetrieveFullDealResponse struct {
+	Data    RetrieveFullResponse `json:"data"`
+	Status  string               `json:"status"`
+	Message string               `json:"message"`
+}
+
+type RetrieveFullResponse struct {
+	FileAddress string `json:"file_address"`
+	FileBucket  string `json:"file_address"`
+	FileName    string `json:"file_name"`
+}
+
 func (web *webAPIHandlers) JsonRetrieveDeal(w http.ResponseWriter, r *http.Request) {
 	ctx := newContext(r, w, "WebJsonRetrieveDeal")
 	claims, owner, authErr := webRequestAuthenticate(r)
@@ -3889,6 +3901,16 @@ func JsonPath(bucket string, object string) (string, error) {
 	return expandedDir, nil
 }
 
+func RetrieveFullPath(outputAddress string, bucket string, object string) (string, error) {
+	bucketJsonPath := filepath.Join(outputAddress, bucket, object)
+	expandedDir, err := oshomedir.Expand(bucketJsonPath)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return "", err
+	}
+	return expandedDir, nil
+}
+
 func BucketJsonPath() (string, error) {
 
 	fs3VolumeAddress := config.Fs3VolumeAddress
@@ -4827,6 +4849,207 @@ func (web *webAPIHandlers) SendOfflineDeals(w http.ResponseWriter, r *http.Reque
 
 }
 
+func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "RetrieveFullDeal")
+
+	//claims, owner, authErr := webRequestAuthenticate(r)
+	claims, _, _ := webRequestAuthenticate(r)
+	defer logger.AuditLog(ctx, w, r, claims.Map())
+
+	objectAPI := web.ObjectAPI()
+	if objectAPI == nil {
+		writeOfflineDealsErrorResponse(w, errServerNotInitialized)
+		return
+	}
+
+	vars := mux.Vars(r)
+
+	bucket := vars["bucket"]
+
+	object, err := unescapePath(vars["object"])
+	if err != nil {
+		writeWebErrorResponse(w, err)
+		return
+	}
+
+	//if authErr != nil {
+	//	if authErr == errNoAuthToken {
+	//		// Check if anonymous (non-owner) has access to download objects.
+	//		if !globalPolicySys.IsAllowed(policy.Args{
+	//			Action:          policy.GetObjectAction,
+	//			BucketName:      bucket,
+	//			ConditionValues: getConditionValues(r, "", "", nil),
+	//			IsOwner:         false,
+	//			ObjectName:      "",
+	//		}) {
+	//			w.WriteHeader(http.StatusUnauthorized)
+	//			sendResponse := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, FS3 token missing"}
+	//			errJson, _ := json.Marshal(sendResponse)
+	//			w.Write(errJson)
+	//			return
+	//		}
+	//		if globalPolicySys.IsAllowed(policy.Args{
+	//			Action:          policy.GetObjectRetentionAction,
+	//			BucketName:      bucket,
+	//			ConditionValues: getConditionValues(r, "", "", nil),
+	//			IsOwner:         false,
+	//			ObjectName:      "",
+	//		}) {
+	//
+	//		}
+	//		if globalPolicySys.IsAllowed(policy.Args{
+	//			Action:          policy.GetObjectLegalHoldAction,
+	//			BucketName:      bucket,
+	//			ConditionValues: getConditionValues(r, "", "", nil),
+	//			IsOwner:         false,
+	//			ObjectName:      "",
+	//		}) {
+	//
+	//		}
+	//	} else {
+	//		w.WriteHeader(http.StatusUnauthorized)
+	//		sendResponse := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, check your FS3 token"}
+	//		errJson, _ := json.Marshal(sendResponse)
+	//		w.Write(errJson)
+	//		return
+	//	}
+	//}
+
+	// For authenticated users apply IAM policy.
+	//if authErr == nil {
+	//	if !globalIAMSys.IsAllowed(iampolicy.Args{
+	//		AccountName:     claims.AccessKey,
+	//		Action:          iampolicy.GetObjectAction,
+	//		BucketName:      bucket,
+	//		ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
+	//		IsOwner:         owner,
+	//		ObjectName:      object,
+	//		Claims:          claims.Map(),
+	//	}) {
+	//		w.WriteHeader(http.StatusUnauthorized)
+	//		sendResponseIam := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, check your FS3 token"}
+	//		errJsonIam, _ := json.Marshal(sendResponseIam)
+	//		w.Write(errJsonIam)
+	//		return
+	//	}
+	//	if globalIAMSys.IsAllowed(iampolicy.Args{
+	//		AccountName:     claims.AccessKey,
+	//		Action:          iampolicy.GetObjectRetentionAction,
+	//		BucketName:      bucket,
+	//		ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
+	//		IsOwner:         owner,
+	//		ObjectName:      object,
+	//		Claims:          claims.Map(),
+	//	}) {
+	//
+	//	}
+	//	if globalIAMSys.IsAllowed(iampolicy.Args{
+	//		AccountName:     claims.AccessKey,
+	//		Action:          iampolicy.GetObjectLegalHoldAction,
+	//		BucketName:      bucket,
+	//		ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
+	//		IsOwner:         owner,
+	//		ObjectName:      object,
+	//		Claims:          claims.Map(),
+	//	}) {
+	//
+	//	}
+	//}
+	//
+	//_, err = objectAPI.GetBucketInfo(ctx, bucket)
+	//if err != nil {
+	//	writeOfflineDealsErrorResponse(w, err)
+	//	return
+	//}
+	//
+	//// Check if bucket is a reserved bucket name or invalid.
+	//if isReservedOrInvalidBucket(bucket, false) {
+	//	writeOfflineDealsErrorResponse(w, errInvalidBucketName)
+	//	return
+	//}
+
+	decoder := json.NewDecoder(r.Body)
+	var retrieveDealRequest RetrieveDealInfo
+	err = decoder.Decode(&retrieveDealRequest)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeOfflineDealsErrorResponse(w, err)
+		return
+	}
+	if err != nil && err != io.EOF {
+		w.Write([]byte(fmt.Sprintf("bad request: %s", err.Error())))
+		return
+	}
+
+	_ = func(address string) (string, error) {
+		addr := net.ParseIP(address)
+		if addr != nil {
+			// Host is an ip address
+			err := errors.New("for dev env, please provide a header with valid Host, exp: a5a84b78-dd4a-45f4-bd90-31428fc23a21.cygnus.nbai.io")
+			return "", err
+		} else {
+			// Host is a host name
+			domainSegments := strings.Split(address, ".")
+			if len(domainSegments) > 1 {
+				return domainSegments[0], nil
+			} else {
+				err := errors.New(fmt.Sprintf("invalid Host in header %s", address))
+				return "", err
+			}
+		}
+	}
+
+	dealActivated, err := exec.Command("lotus", "client", "inspect-deal", retrieveDealRequest.DealCid, "|", "grep", "activated").Output()
+	if dealActivated == nil {
+		retrieveFullDealResponse := RetrieveFullDealResponse{
+			Data:    RetrieveFullResponse{},
+			Status:  FailResponseStatus,
+			Message: fmt.Sprintf("Retrieve deal failed due to deal not activated. Deal cid: %s", retrieveDealRequest.DealCid),
+		}
+		bodyByte, err := json.Marshal(retrieveFullDealResponse)
+		if err != nil {
+			writeWebErrorResponse(w, err)
+			logs.GetLogger().Error(err)
+			return
+		}
+		w.Write(bodyByte)
+		return
+	}
+
+	outputAddress, err := RetrieveFullPath(retrieveDealRequest.OutputAddress, bucket, object)
+	if err != nil {
+		writeWebErrorResponse(w, err)
+		logs.GetLogger().Error(err)
+		return
+	}
+
+	// retrieve deal
+	_, err = exec.Command("lotus", "client", "retrieve", "--miner", retrieveDealRequest.MinerId, retrieveDealRequest.DealCid, outputAddress).Output()
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeOfflineDealsErrorResponse(w, err)
+		return
+	}
+	retrieveFullResponse := RetrieveFullResponse{
+		FileAddress: outputAddress,
+		FileBucket:  bucket,
+		FileName:    object,
+	}
+	retrieveFullDealResponse := RetrieveFullDealResponse{
+		Data:    retrieveFullResponse,
+		Status:  SuccessResponseStatus,
+		Message: SuccessResponseStatus,
+	}
+	bodyByte, err := json.Marshal(retrieveFullDealResponse)
+	if err != nil {
+		writeWebErrorResponse(w, err)
+		logs.GetLogger().Error(err)
+		return
+	}
+	w.Write(bodyByte)
+	return
+}
+
 type OfflineDeal struct {
 	MinerId       string
 	PieceCid      string
@@ -5446,6 +5669,12 @@ func createTask(bucket string, offlineDeals CarCsv, outputDir string, request Ta
 	}
 	return response, err
 
+}
+
+type RetrieveDealInfo struct {
+	MinerId       string `json:"minerId"`
+	DealCid       string `json:"deal_cid"`
+	OutputAddress string `json:"output_address"`
 }
 
 type TaskInfo struct {
