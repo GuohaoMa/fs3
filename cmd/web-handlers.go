@@ -3631,6 +3631,7 @@ func (web *webAPIHandlers) SendDeal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
+
 	ctx := newContext(r, w, "WebSendBucketDeal")
 
 	claims, owner, authErr := webRequestAuthenticate(r)
@@ -4850,10 +4851,10 @@ func (web *webAPIHandlers) SendOfflineDeals(w http.ResponseWriter, r *http.Reque
 }
 
 func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "RetrieveFullDeal")
 
-	//claims, owner, authErr := webRequestAuthenticate(r)
-	claims, _, _ := webRequestAuthenticate(r)
+	ctx := newContext(r, w, "WebRetrieveFullDeal")
+
+	claims, owner, authErr := webRequestAuthenticate(r)
 	defer logger.AuditLog(ctx, w, r, claims.Map())
 
 	objectAPI := web.ObjectAPI()
@@ -4872,101 +4873,101 @@ func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	//if authErr != nil {
-	//	if authErr == errNoAuthToken {
-	//		// Check if anonymous (non-owner) has access to download objects.
-	//		if !globalPolicySys.IsAllowed(policy.Args{
-	//			Action:          policy.GetObjectAction,
-	//			BucketName:      bucket,
-	//			ConditionValues: getConditionValues(r, "", "", nil),
-	//			IsOwner:         false,
-	//			ObjectName:      "",
-	//		}) {
-	//			w.WriteHeader(http.StatusUnauthorized)
-	//			sendResponse := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, FS3 token missing"}
-	//			errJson, _ := json.Marshal(sendResponse)
-	//			w.Write(errJson)
-	//			return
-	//		}
-	//		if globalPolicySys.IsAllowed(policy.Args{
-	//			Action:          policy.GetObjectRetentionAction,
-	//			BucketName:      bucket,
-	//			ConditionValues: getConditionValues(r, "", "", nil),
-	//			IsOwner:         false,
-	//			ObjectName:      "",
-	//		}) {
-	//
-	//		}
-	//		if globalPolicySys.IsAllowed(policy.Args{
-	//			Action:          policy.GetObjectLegalHoldAction,
-	//			BucketName:      bucket,
-	//			ConditionValues: getConditionValues(r, "", "", nil),
-	//			IsOwner:         false,
-	//			ObjectName:      "",
-	//		}) {
-	//
-	//		}
-	//	} else {
-	//		w.WriteHeader(http.StatusUnauthorized)
-	//		sendResponse := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, check your FS3 token"}
-	//		errJson, _ := json.Marshal(sendResponse)
-	//		w.Write(errJson)
-	//		return
-	//	}
-	//}
+	if authErr != nil {
+		if authErr == errNoAuthToken {
+			// Check if anonymous (non-owner) has access to download objects.
+			if !globalPolicySys.IsAllowed(policy.Args{
+				Action:          policy.GetObjectAction,
+				BucketName:      bucket,
+				ConditionValues: getConditionValues(r, "", "", nil),
+				IsOwner:         false,
+				ObjectName:      "",
+			}) {
+				w.WriteHeader(http.StatusUnauthorized)
+				sendResponse := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, FS3 token missing"}
+				errJson, _ := json.Marshal(sendResponse)
+				w.Write(errJson)
+				return
+			}
+			if globalPolicySys.IsAllowed(policy.Args{
+				Action:          policy.GetObjectRetentionAction,
+				BucketName:      bucket,
+				ConditionValues: getConditionValues(r, "", "", nil),
+				IsOwner:         false,
+				ObjectName:      "",
+			}) {
 
-	// For authenticated users apply IAM policy.
-	//if authErr == nil {
-	//	if !globalIAMSys.IsAllowed(iampolicy.Args{
-	//		AccountName:     claims.AccessKey,
-	//		Action:          iampolicy.GetObjectAction,
-	//		BucketName:      bucket,
-	//		ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
-	//		IsOwner:         owner,
-	//		ObjectName:      object,
-	//		Claims:          claims.Map(),
-	//	}) {
-	//		w.WriteHeader(http.StatusUnauthorized)
-	//		sendResponseIam := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, check your FS3 token"}
-	//		errJsonIam, _ := json.Marshal(sendResponseIam)
-	//		w.Write(errJsonIam)
-	//		return
-	//	}
-	//	if globalIAMSys.IsAllowed(iampolicy.Args{
-	//		AccountName:     claims.AccessKey,
-	//		Action:          iampolicy.GetObjectRetentionAction,
-	//		BucketName:      bucket,
-	//		ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
-	//		IsOwner:         owner,
-	//		ObjectName:      object,
-	//		Claims:          claims.Map(),
-	//	}) {
-	//
-	//	}
-	//	if globalIAMSys.IsAllowed(iampolicy.Args{
-	//		AccountName:     claims.AccessKey,
-	//		Action:          iampolicy.GetObjectLegalHoldAction,
-	//		BucketName:      bucket,
-	//		ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
-	//		IsOwner:         owner,
-	//		ObjectName:      object,
-	//		Claims:          claims.Map(),
-	//	}) {
-	//
-	//	}
-	//}
-	//
-	//_, err = objectAPI.GetBucketInfo(ctx, bucket)
-	//if err != nil {
-	//	writeOfflineDealsErrorResponse(w, err)
-	//	return
-	//}
-	//
-	//// Check if bucket is a reserved bucket name or invalid.
-	//if isReservedOrInvalidBucket(bucket, false) {
-	//	writeOfflineDealsErrorResponse(w, errInvalidBucketName)
-	//	return
-	//}
+			}
+			if globalPolicySys.IsAllowed(policy.Args{
+				Action:          policy.GetObjectLegalHoldAction,
+				BucketName:      bucket,
+				ConditionValues: getConditionValues(r, "", "", nil),
+				IsOwner:         false,
+				ObjectName:      "",
+			}) {
+
+			}
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+			sendResponse := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, check your FS3 token"}
+			errJson, _ := json.Marshal(sendResponse)
+			w.Write(errJson)
+			return
+		}
+	}
+
+	//For authenticated users apply IAM policy.
+	if authErr == nil {
+		if !globalIAMSys.IsAllowed(iampolicy.Args{
+			AccountName:     claims.AccessKey,
+			Action:          iampolicy.GetObjectAction,
+			BucketName:      bucket,
+			ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
+			IsOwner:         owner,
+			ObjectName:      object,
+			Claims:          claims.Map(),
+		}) {
+			w.WriteHeader(http.StatusUnauthorized)
+			sendResponseIam := AuthToken{Status: FailResponseStatus, Message: "Authentication failed, check your FS3 token"}
+			errJsonIam, _ := json.Marshal(sendResponseIam)
+			w.Write(errJsonIam)
+			return
+		}
+		if globalIAMSys.IsAllowed(iampolicy.Args{
+			AccountName:     claims.AccessKey,
+			Action:          iampolicy.GetObjectRetentionAction,
+			BucketName:      bucket,
+			ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
+			IsOwner:         owner,
+			ObjectName:      object,
+			Claims:          claims.Map(),
+		}) {
+
+		}
+		if globalIAMSys.IsAllowed(iampolicy.Args{
+			AccountName:     claims.AccessKey,
+			Action:          iampolicy.GetObjectLegalHoldAction,
+			BucketName:      bucket,
+			ConditionValues: getConditionValues(r, "", claims.AccessKey, claims.Map()),
+			IsOwner:         owner,
+			ObjectName:      object,
+			Claims:          claims.Map(),
+		}) {
+
+		}
+	}
+
+	_, err = objectAPI.GetBucketInfo(ctx, bucket)
+	if err != nil {
+		writeOfflineDealsErrorResponse(w, err)
+		return
+	}
+
+	// Check if bucket is a reserved bucket name or invalid.
+	if isReservedOrInvalidBucket(bucket, false) {
+		writeOfflineDealsErrorResponse(w, errInvalidBucketName)
+		return
+	}
 
 	decoder := json.NewDecoder(r.Body)
 	var retrieveDealRequest RetrieveDealInfo
@@ -5024,7 +5025,7 @@ func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Reque
 	}
 
 	// retrieve deal
-	_, err = exec.Command("lotus", "client", "retrieve", "--miner", retrieveDealRequest.MinerId, retrieveDealRequest.DealCid, outputAddress).Output()
+	_, err = exec.Command("lotus", "client", "retrieve", "--miner", retrieveDealRequest.MinerId, retrieveDealRequest.PayloadCid, outputAddress).Output()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeOfflineDealsErrorResponse(w, err)
@@ -5673,8 +5674,9 @@ func createTask(bucket string, offlineDeals CarCsv, outputDir string, request Ta
 
 type RetrieveDealInfo struct {
 	MinerId       string `json:"minerId"`
-	DealCid       string `json:"deal_cid"`
-	OutputAddress string `json:"output_address"`
+	DealCid       string `json:"dealCid"`
+	PayloadCid    string `json:"paylodCid"`
+	OutputAddress string `json:"outputAddress"`
 }
 
 type TaskInfo struct {
