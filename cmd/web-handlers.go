@@ -2527,6 +2527,21 @@ func writeOfflineDealsErrorResponse(w http.ResponseWriter, err error) {
 	w.Write(errJson)
 }
 
+func writeRetreieveFullDealErrorResponse(w http.ResponseWriter, err error) {
+	reqInfo := &logger.ReqInfo{
+		DeploymentID: globalDeploymentID,
+	}
+	ctx := logger.SetReqInfo(GlobalContext, reqInfo)
+	apiErr := toWebAPIError(ctx, err)
+	w.WriteHeader(apiErr.HTTPStatusCode)
+	sendResponse := RetrieveFullDealResponse{Status: FailResponseStatus, Message: apiErr.Description}
+	errJson, error := json.Marshal(sendResponse)
+	if error != nil {
+		logs.GetLogger().Error(error)
+	}
+	w.Write(errJson)
+}
+
 type DealVo struct {
 	SwanEndpoint string `json:"swan_endpoint,omitempty"`
 	CarSliceSize int64  `json:"car_slice_size,omitempty"`
@@ -2643,8 +2658,11 @@ type RetrieveFullDealResponse struct {
 
 type RetrieveFullResponse struct {
 	FileAddress string `json:"file_address"`
-	FileBucket  string `json:"file_address"`
+	FileBucket  string `json:"file_bucket"`
 	FileName    string `json:"file_name"`
+	MinerId     string `json:"miner_id"`
+	DealCid     string `json:"deal_cid"`
+	PayloadCid  string `json:"payload_cid"`
 }
 
 func (web *webAPIHandlers) JsonRetrieveDeal(w http.ResponseWriter, r *http.Request) {
@@ -4959,13 +4977,33 @@ func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Reque
 
 	_, err = objectAPI.GetBucketInfo(ctx, bucket)
 	if err != nil {
-		writeOfflineDealsErrorResponse(w, err)
+		logs.GetLogger().Error(err)
+		writeRetreieveFullDealErrorResponse(w, err)
 		return
 	}
 
 	// Check if bucket is a reserved bucket name or invalid.
 	if isReservedOrInvalidBucket(bucket, false) {
-		writeOfflineDealsErrorResponse(w, errInvalidBucketName)
+		logs.GetLogger().Error(err)
+		writeRetreieveFullDealErrorResponse(w, errInvalidBucketName)
+		return
+	}
+
+	getObjectNInfo := objectAPI.GetObjectNInfo
+	if web.CacheAPI() != nil {
+		getObjectNInfo = web.CacheAPI().GetObjectNInfo
+	}
+	var opts ObjectOptions
+	gr, err := getObjectNInfo(ctx, bucket, object, nil, r.Header, readLock, opts)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeRetreieveFullDealErrorResponse(w, err)
+		return
+	}
+	defer gr.Close()
+
+	if err != nil && err != io.EOF {
+		w.Write([]byte(fmt.Sprintf("bad request: %s", err.Error())))
 		return
 	}
 
@@ -4974,7 +5012,7 @@ func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Reque
 	err = decoder.Decode(&retrieveDealRequest)
 	if err != nil {
 		logs.GetLogger().Error(err)
-		writeOfflineDealsErrorResponse(w, err)
+		writeRetreieveFullDealErrorResponse(w, err)
 		return
 	}
 	if err != nil && err != io.EOF {
@@ -5000,7 +5038,7 @@ func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	dealActivated, err := exec.Command("lotus", "client", "inspect-deal", retrieveDealRequest.DealCid, "|", "grep", "activated").Output()
+	dealActivated, err := exec.Command("lotus", "client", "inspect-deal", "--proposal-cid", retrieveDealRequest.DealCid, "|", "grep", "activated").Output()
 	if dealActivated == nil {
 		retrieveFullDealResponse := RetrieveFullDealResponse{
 			Data:    RetrieveFullResponse{},
@@ -5015,6 +5053,22 @@ func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Reque
 		}
 		w.Write(bodyByte)
 		return
+	}
+
+	outputDirPath := filepath.Join(retrieveDealRequest.OutputAddress, bucket)
+	outputDirExpand, err := oshomedir.Expand(outputDirPath)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+	if _, err := os.Stat(outputDirExpand); os.IsNotExist(err) {
+		err := os.Mkdir(outputDirExpand, 0775)
+		if err != nil {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
 	}
 
 	outputAddress, err := RetrieveFullPath(retrieveDealRequest.OutputAddress, bucket, object)
@@ -5035,6 +5089,9 @@ func (web *webAPIHandlers) RetrieveFullDeal(w http.ResponseWriter, r *http.Reque
 		FileAddress: outputAddress,
 		FileBucket:  bucket,
 		FileName:    object,
+		MinerId:     retrieveDealRequest.MinerId,
+		DealCid:     retrieveDealRequest.DealCid,
+		PayloadCid:  retrieveDealRequest.PayloadCid,
 	}
 	retrieveFullDealResponse := RetrieveFullDealResponse{
 		Data:    retrieveFullResponse,
@@ -5675,7 +5732,7 @@ func createTask(bucket string, offlineDeals CarCsv, outputDir string, request Ta
 type RetrieveDealInfo struct {
 	MinerId       string `json:"minerId"`
 	DealCid       string `json:"dealCid"`
-	PayloadCid    string `json:"paylodCid"`
+	PayloadCid    string `json:"payloadCid"`
 	OutputAddress string `json:"outputAddress"`
 }
 
