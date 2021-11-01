@@ -316,6 +316,7 @@ export default {
                 }
             }
             _this.dialogFormVisible = dialogFormVisible
+            console.log('create api request start')
             axios.post(_this.postUrl, dataMakeBucket, {headers: {
                 'Authorization':"Bearer "+ _this.$store.getters.accessToken
             }}).then((response) => {
@@ -330,6 +331,7 @@ export default {
                     return false
                 }
                 _this.currentBucket = name
+                console.log('create success: ' + name)
                 if(_this.minioListBuckets && _this.minioListBuckets.buckets) {
                   _this.minioListBuckets.buckets.map(item => {
                     if(item.name.indexOf(name) >= 0){
