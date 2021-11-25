@@ -923,11 +923,9 @@ export default {
     },
     getServer() {
         let _this = this;
-        console.log('create start')
         _this.$emit('getaboutServer', _this.form.name, false);
         _this.form.name = ''
         _this.drawPlayClose()
-        console.log('create end')
     },
     aboutListData(){
       let _this = this
