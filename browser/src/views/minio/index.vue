@@ -266,7 +266,7 @@
         </el-table>
       </div>
 
-      // all deals page table
+      <!-- all deals page table -->
       <div class="table" v-else>
         <el-table :data="exChangeList" stripe style="width: 100%" class="demo-table-expand">
             <el-table-column type="expand"></el-table-column>
@@ -1111,7 +1111,7 @@ export default {
                                     version = 'safari ' + browser.safari;
                                 }
                                 else {
-                                    version = '未知浏览器';
+                                    version = 'Unknown browser';
                                 }
                             }
                         }
@@ -1183,11 +1183,7 @@ export default {
     }
     _this.fn()*/
     document.onkeydown = function(e) {
-      console.log('keycode keydown')
-      console.log("您的操作系统是："+ _this.getOS())
-      console.log("您的浏览器版本是："+ _this.Browse())
       if (e.keyCode === 13) {
-        console.log('keycode: '+e.keyCode)
         if(!_this.editNameFile){
           _this.$nextTick(() => {
             _this.editNameFile = true
@@ -1306,6 +1302,7 @@ export default {
                 color: #fff;
                 line-height: 0.34rem;
                 font-size: 0.15rem;
+                font-family: 'm-regular';
                 border: 0;
                 border-radius: 0.08rem;
             }
@@ -1700,6 +1697,7 @@ export default {
                 display: -webkit-box;
                 -webkit-line-clamp: 2;
                 -webkit-box-orient: vertical;
+                font-family: 'm-regular';
                 span{
                     line-height: 0.25rem;
                     overflow: hidden;
@@ -1771,6 +1769,7 @@ export default {
         .draw_right{
           .el-button{
             font-size: 0.16rem;
+            font-family: 'm-regular';
             i{
               font-weight: bold;
             }
@@ -1952,6 +1951,7 @@ export default {
                 padding: 0.05rem 0.1rem;
                 margin: 0 0.03rem;
                 font-size: 12px;
+                font-family: 'm-regular';
                 color: #fff;
                 border: 0;
                 background-color: #ff726f;
@@ -2001,8 +2001,9 @@ export default {
                }
 
                .el-button /deep/ {
-               padding: 0 0.2rem;
-               font-size: 0.1372rem;
+                padding: 0 0.2rem;
+                font-size: 0.1372rem;
+                font-family: 'm-regular';
                }
            }
          }
