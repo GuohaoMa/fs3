@@ -316,7 +316,6 @@ export default {
                 }
             }
             _this.dialogFormVisible = dialogFormVisible
-            console.log('create api request start')
             axios.post(_this.postUrl, dataMakeBucket, {headers: {
                 'Authorization':"Bearer "+ _this.$store.getters.accessToken
             }}).then((response) => {
