@@ -13,100 +13,100 @@
           <el-breadcrumb-item>{{linkTitle}}</el-breadcrumb-item>
         </el-breadcrumb>
         <el-table
-          :data="tableData_1" v-loading="loading" stripe empty-text="No data" v-if="$route.params.type == 'backup_job'">
-          <el-table-column prop="backupTaskId" label="Backup ID" width="100">
+          :data="tableData" v-loading="loading" stripe empty-text="No data" v-if="$route.params.type == 'backup_job'">
+          <el-table-column prop="ID" label="Backup ID" width="100">
             <template slot-scope="scope">
-              {{ scope.row.backupTaskId }}
+              {{ scope.row.ID }}
             </template>
           </el-table-column>
-          <el-table-column prop="updatedOn" label="Last Updata" width="120">
+          <el-table-column prop="UpdatedOn" label="Last Updata" width="120">
             <template slot-scope="scope">
-              {{ scope.row.updatedOn }}
+              {{ scope.row.UpdatedOn }}
             </template>
           </el-table-column>
-          <el-table-column prop="createdOn" label="Date Created" width="120">
+          <el-table-column prop="CreatedOn" label="Date Created" width="120">
             <template slot-scope="scope">
-              {{ scope.row.createdOn }}
+              {{ scope.row.CreatedOn }}
             </template>
           </el-table-column>
-          <el-table-column prop="miner_id" label="W3SSID" width="120">
+          <el-table-column prop="MinerId" label="W3SSID" width="120">
             <template slot-scope="scope">
-              {{ scope.row.data.dealInfo[0].miner_id }}
+              {{ scope.row.MinerId }}
             </template>
           </el-table-column>
-          <el-table-column prop="cost" label="Price" width="140">
+          <el-table-column prop="Cost" label="Price" width="140">
             <template slot-scope="scope">
-              {{ scope.row.data.dealInfo[0].cost | NumFormatPrice}} FIL
+              {{ scope.row.Cost | NumFormatPrice}} FIL
             </template>
           </el-table-column>
-          <el-table-column prop="deal_cid" label="Deal CID" min-width="200">
+          <el-table-column prop="DealCid" label="Deal CID" min-width="200">
             <template slot-scope="scope">
                 <div class="hot-cold-box">
                     <el-popover
                         placement="top" width="160"
                         trigger="hover"
-                        v-model="scope.row.data.dealInfo[0].visible">
+                        v-model="scope.row.visible">
                         <div class="upload_form_right">
-                            <p>{{scope.row.data.dealInfo[0].deal_cid}}</p>
+                            <p>{{scope.row.DealCid}}</p>
                         </div>
-                        <el-button slot="reference" @click="copyTextToClipboard(scope.row.data.dealInfo[0].deal_cid)">
+                        <el-button slot="reference" @click="copyTextToClipboard(scope.row.DealCid)">
                             <img src="@/assets/images/copy.png" alt="">
-                            {{scope.row.data.dealInfo[0].deal_cid}}
+                            {{scope.row.DealCid}}
                         </el-button>
                     </el-popover>
                 </div>
             </template>
           </el-table-column>
-          <el-table-column prop="payload_cid" label="Data CID" min-width="200">
+          <el-table-column prop="PayloadCid" label="Data CID" min-width="200">
             <template slot-scope="scope">
                 <div class="hot-cold-box">
                     <el-popover
                         placement="top" width="160"
                         trigger="hover"
-                        v-model="scope.row.data.dealInfo[0].dataVisible">
+                        v-model="scope.row.dataVisible">
                         <div class="upload_form_right">
-                            <p>{{scope.row.data.dealInfo[0].payload_cid}}</p>
+                            <p>{{scope.row.PayloadCid}}</p>
                         </div>
-                        <el-button slot="reference" @click="copyTextToClipboard(scope.row.data.dealInfo[0].payload_cid)">
+                        <el-button slot="reference" @click="copyTextToClipboard(scope.row.PayloadCid)">
                             <img src="@/assets/images/copy.png" alt="">
-                            {{scope.row.data.dealInfo[0].payload_cid}}
+                            {{scope.row.PayloadCid}}
                         </el-button>
                     </el-popover>
                 </div>
             </template>
           </el-table-column>
-          <el-table-column prop="duration" label="Duration" width="130">
+          <el-table-column prop="Duration" label="Duration" width="130">
             <template slot-scope="scope">
-              {{ scope.row.data.duration }} 
+              {{ scope.row.Duration }} 
               <br>
-              ({{ scope.row.data.duration_time }})
+              ({{ scope.row.duration_time }})
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="Status" width="140">
+          <el-table-column prop="Status" label="Status" width="140">
             <template slot-scope="scope">
                 <div class="statusStyle"
-                      v-if="scope.row.status == 'Created'"
+                      v-if="scope.row.Status == 'Created'"
                       style="color: #0a318e">
-                    {{ scope.row.status }}
+                    {{ scope.row.Status }}
                 </div>
                 <div class="statusStyle"
-                      v-else-if="scope.row.status == 'Running'"
+                      v-else-if="scope.row.Status == 'Running'"
                       style="color: #ffb822">
-                    {{ scope.row.status }}
+                    {{ scope.row.Status }}
                 </div>
                 <div class="statusStyle"
-                      v-else-if="scope.row.status == 'Completed'"
+                      v-else-if="scope.row.Status == 'Completed'"
                       style="color: #1dc9b7">
-                    {{ scope.row.status }}
+                    {{ scope.row.Status }}
                 </div>
                 <div class="statusStyle" v-else style="color: rgb(255, 184, 34)">
-                    {{ scope.row.status }}
+                    {{ scope.row.Status }}
                 </div>
             </template>
           </el-table-column>
           <el-table-column prop="" label="" min-width="130">
             <template slot-scope="scope">
-              <el-button v-if="scope.row.status != 'Completed'"
+              <el-button v-if="scope.row.Status != 'Completed'"
                 type="info"
                 @click="dialogDis=true">Rebuild Image</el-button>
               <el-button v-else
@@ -162,8 +162,8 @@
           </el-table-column>
           <el-table-column prop="PayloadCid" label="Data CID" min-width="110"></el-table-column>
           <el-table-column prop="ID" label="Backup ID"></el-table-column>
-          <el-table-column prop="CreatedOn" label="Date Created" width="110"></el-table-column>
-          <el-table-column prop="UpdatedOn" label="Date Updated" width="110"></el-table-column>
+          <el-table-column prop="CreatedOn" label="Date Created" width="120"></el-table-column>
+          <el-table-column prop="UpdatedOn" label="Date Updated" width="120"></el-table-column>
         </el-table>
       </div>
 
@@ -172,7 +172,7 @@
         :visible.sync="dialogVisible"
         :width="dialogWidth">
         <img src="@/assets/images/small_bell.png" class="icon" alt="">
-        <span class="span">Are you sure you want to rebuild volume from <b>{{backupPlan.backupPlanName}}</b> ?</span>
+        <span class="span">Are you sure you want to rebuild volume from <b>{{backupPlan.Name}}</b> ?</span>
         <span class="span">This action will overwrite your existing file system,</span>
         <span class="span"><b>Proceed?</b></span>
         <div slot="footer" class="dialog-footer">
@@ -263,7 +263,6 @@ export default {
           tableData_1: [],
           tableData_2: [],
           backupPlan: {
-            backupPlanName: '-',
             date: '-',
             "backupPlanId": '',
             "backupPlanTasks": [
@@ -299,7 +298,7 @@ export default {
 
         let postUrl = _this.data_api + `/minio/rebuild/add/job`
         let params = {
-          "BackupTaskId": row.backupTaskId
+          "BackupTaskId": row.ID
         }
 
         axios.post(postUrl, params, {headers: {
@@ -308,8 +307,7 @@ export default {
             let json = response.data
             if (json.status == 'success') {
               _this.backupPlan = json.data
-              _this.backupPlan.backupPlanName = row.backupPlanName
-              _this.backupPlan.backupTaskId = row.backupTaskId
+              _this.backupPlan.backupTaskId = row.ID
               if(_this.backupPlan.CreatedOn) _this.backupPlan.CreatedOn = moment(new Date(parseInt(_this.backupPlan.CreatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
             }else{
                 _this.$message.error(json.message);
@@ -377,32 +375,27 @@ export default {
               _this.loading = false
               let json = response.data
               if (json.status == 'success') {
-                _this.tableData = json.data.volumeBackupPlans
+                _this.tableData = json.data.VolumeBackupJobs
                 _this.tableData.map(item => {
-                  item.backupPlanTasks.map(child => {
-                    child.data.dealInfo[0].visible = false
-                    child.data.dealInfo[0].dataVisible = false
-                    child.data.duration_time = 
-                      child.data.duration?
-                          moment(new Date(parseInt((parseInt(child.data.duration)*30 + parseInt(1598306471)) * 1000))).format("YYYY-MM-DD HH:mm:ss")
+                    item.visible = false
+                    item.dataVisible = false
+                    item.duration_time = 
+                      item.Duration?
+                          moment(new Date(parseInt((parseInt(item.Duration)*30 + parseInt(1598306471)) * 1000))).format("YYYY-MM-DD HH:mm:ss")
                           :
                           '-'
-                    child.createdOn = 
-                      child.createdOn?
-                          moment(new Date(parseInt(child.createdOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
+                    item.CreatedOn = 
+                      item.CreatedOn?
+                          moment(new Date(parseInt(item.CreatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
                           :
                           '-'
-                    child.updatedOn = 
-                      child.updatedOn?
-                          moment(new Date(parseInt(child.updatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
+                    item.UpdatedOn = 
+                      item.UpdatedOn?
+                          moment(new Date(parseInt(item.UpdatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
                           :
                           '-'
-                    child.backupPlanName = item.backupPlanName
-                    child.backupPlanId = item.backupPlanId
-                    child.backupPlanTasksCounts = item.backupPlanTasksCounts
-                    _this.tableData_1.push(child)
-                    _this.tableData_1.sort(function(a, b){return a.backupTaskId - b.backupTaskId})
-                  })
+                    // _this.tableData_1.push(child)
+                    // _this.tableData_1.sort(function(a, b){return a.backupTaskId - b.backupTaskId})
                 })
               }else{
                   _this.$message.error(json.message);

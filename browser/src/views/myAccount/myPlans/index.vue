@@ -42,7 +42,7 @@
       </div>
 
       <el-dialog
-        :title="ruleForm.backupPlanName" custom-class="formStyle"
+        :title="ruleForm.Name" custom-class="formStyle"
         :visible.sync="dialogVisible"
         :width="dialogWidth"
         :before-close="handleClose">
@@ -62,13 +62,13 @@
         </el-card>
         <div slot="footer" class="dialog-footer">
           <el-button 
-            :type="ruleForm.status&&ruleForm.status.toLowerCase() == 'running'?'danger':'info'"
-            :disabled="ruleForm.status&&ruleForm.status.toLowerCase() == 'running'?false:true"
+            :type="ruleForm.Status&&ruleForm.Status.toLowerCase() == 'running'?'danger':'info'"
+            :disabled="ruleForm.Status&&ruleForm.Status.toLowerCase() == 'running'?false:true"
             @click="planStatus(ruleForm)"
           >STOP</el-button>
           <el-button 
-            :type="ruleForm.status&&ruleForm.status.toLowerCase() == 'running'?'info':'success'"
-            :disabled="ruleForm.status&&ruleForm.status.toLowerCase() == 'running'?true:false"
+            :type="ruleForm.Status&&ruleForm.Status.toLowerCase() == 'running'?'info':'success'"
+            :disabled="ruleForm.Status&&ruleForm.Status.toLowerCase() == 'running'?true:false"
             @click="planStatus(ruleForm)"
           >START</el-button>
           <el-button type="success" @click="handleClose">OK</el-button>
