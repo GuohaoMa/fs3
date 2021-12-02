@@ -118,31 +118,31 @@
 
         <el-table
           :data="tableData_2" v-loading="loading" stripe empty-text="No data" v-else>
-          <el-table-column prop="rebuildTaskID" label="Rebuild Job ID"></el-table-column>
-          <el-table-column prop="status" label="Status">
+          <el-table-column prop="BackupJobId" label="Backup Job ID"></el-table-column>
+          <el-table-column prop="Status" label="Status">
             <template slot-scope="scope">
                 <div class="statusStyle"
-                      v-if="scope.row.status == 'Created'"
+                      v-if="scope.row.Status == 'Created'"
                       style="color: #0a318e">
-                    {{ scope.row.status }}
+                    {{ scope.row.Status }}
                 </div>
                 <div class="statusStyle"
-                      v-else-if="scope.row.status == 'Running'"
+                      v-else-if="scope.row.Status == 'Running'"
                       style="color: #ffb822">
-                    {{ scope.row.status }}
+                    {{ scope.row.Status }}
                 </div>
                 <div class="statusStyle"
-                      v-else-if="scope.row.status == 'Completed'"
+                      v-else-if="scope.row.Status == 'Completed'"
                       style="color: #1dc9b7">
-                    {{ scope.row.status }}
+                    {{ scope.row.Status }}
                 </div>
                 <div class="statusStyle" v-else style="color: rgb(255, 184, 34)">
-                    {{ scope.row.status }}
+                    {{ scope.row.Status }}
                 </div>
             </template>
           </el-table-column>
-          <el-table-column prop="miner_id" label="W3SSID"></el-table-column>
-          <el-table-column prop="deal_cid" label="Deal CID" min-width="110">
+          <el-table-column prop="MinerId" label="W3SSID"></el-table-column>
+          <el-table-column prop="DealCid" label="Deal CID" min-width="110">
             <template slot-scope="scope">
                 <div class="hot-cold-box">
                     <el-popover
@@ -150,20 +150,20 @@
                         trigger="hover"
                         v-model="scope.row.visible">
                         <div class="upload_form_right">
-                            <p>{{scope.row.deal_cid}}</p>
+                            <p>{{scope.row.DealCid}}</p>
                         </div>
-                        <el-button slot="reference" @click="copyTextToClipboard(scope.row.deal_cid)">
+                        <el-button slot="reference" @click="copyTextToClipboard(scope.row.DealCid)">
                             <img src="@/assets/images/copy.png" alt="">
-                            {{scope.row.deal_cid}}
+                            {{scope.row.DealCid}}
                         </el-button>
                     </el-popover>
                 </div>
             </template>
           </el-table-column>
-          <el-table-column prop="payload_cid" label="Data CID" min-width="110"></el-table-column>
-          <el-table-column prop="backupTaskId" label="Backup ID"></el-table-column>
-          <el-table-column prop="createdOn" label="Date Created" width="110"></el-table-column>
-          <el-table-column prop="updatedOn" label="Date Updated" width="110"></el-table-column>
+          <el-table-column prop="PayloadCid" label="Data CID" min-width="110"></el-table-column>
+          <el-table-column prop="ID" label="Backup ID"></el-table-column>
+          <el-table-column prop="CreatedOn" label="Date Created" width="110"></el-table-column>
+          <el-table-column prop="UpdatedOn" label="Date Updated" width="110"></el-table-column>
         </el-table>
       </div>
 
@@ -191,31 +191,31 @@
         <br>
         <el-card class="box-card">
           <div class="statusStyle">
-            <div class="list"><span>Rebuild Job ID: </span> {{backupPlan.rebuildTaskID}}</div>
-            <div class="list"><span>Date Created:</span> {{backupPlan.createdOn}}</div>
-            <div class="list"><span>W3SSID:</span> {{backupPlan.miner_id}}</div>
+            <div class="list"><span>Backup Job ID: </span> {{backupPlan.BackupJobId}}</div>
+            <div class="list"><span>Date Created:</span> {{backupPlan.CreatedOn}}</div>
+            <div class="list"><span>W3SSID:</span> {{backupPlan.MinerId}}</div>
             <div class="list"><span>Backup ID:</span> {{backupPlan.backupTaskId}} </div>
-            <div class="list"><span>Data CID:</span> {{backupPlan.payload_cid}} </div>
-            <div class="list"><span>Deal CID:</span> {{backupPlan.deal_cid}} </div>
+            <div class="list"><span>Data CID:</span> {{backupPlan.PayloadCid}} </div>
+            <div class="list"><span>Deal CID:</span> {{backupPlan.DealCid}} </div>
             <div class="list">
               <span>Stauts:</span>
               <small
-                    v-if="backupPlan.status == 'Created'"
+                    v-if="backupPlan.Status == 'Created'"
                     style="color: #0a318e">
-                  {{ backupPlan.status }}
+                  {{ backupPlan.Status }}
               </small>
               <small
-                    v-else-if="backupPlan.status == 'Running'"
+                    v-else-if="backupPlan.Status == 'Running'"
                     style="color: #ffb822">
-                  {{ backupPlan.status }}
+                  {{ backupPlan.Status }}
               </small>
               <small
-                    v-else-if="backupPlan.status == 'Completed'"
+                    v-else-if="backupPlan.Status == 'Completed'"
                     style="color: #1dc9b7">
-                  {{ backupPlan.status }}
+                  {{ backupPlan.Status }}
               </small>
               <small v-else style="color: rgb(255, 184, 34)">
-                  {{ backupPlan.status }}
+                  {{ backupPlan.Status }}
               </small>
             </div>
           </div>
@@ -299,8 +299,7 @@ export default {
 
         let postUrl = _this.data_api + `/minio/rebuild/add/job`
         let params = {
-          "BackupTaskId": row.backupTaskId,
-          "BackupPlanId": row.backupPlanId
+          "BackupTaskId": row.backupTaskId
         }
 
         axios.post(postUrl, params, {headers: {
@@ -310,7 +309,8 @@ export default {
             if (json.status == 'success') {
               _this.backupPlan = json.data
               _this.backupPlan.backupPlanName = row.backupPlanName
-              if(_this.backupPlan.createdOn) _this.backupPlan.createdOn = moment(new Date(parseInt(_this.backupPlan.createdOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
+              _this.backupPlan.backupTaskId = row.backupTaskId
+              if(_this.backupPlan.CreatedOn) _this.backupPlan.CreatedOn = moment(new Date(parseInt(_this.backupPlan.CreatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
             }else{
                 _this.$message.error(json.message);
                 return false
@@ -422,11 +422,11 @@ export default {
               _this.loading = false
               let json = response.data
               if (json.status == 'success') {
-                _this.tableData_2 = json.data.volumeRebuildTasks
+                _this.tableData_2 = json.data.volumeRebuildJobs
                 _this.tableData_2.map(item => {
                     item.visible = false
-                    item.createdOn = moment(new Date(parseInt(item.createdOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
-                    item.updatedOn = moment(new Date(parseInt(item.updatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
+                    item.CreatedOn = moment(new Date(parseInt(item.CreatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
+                    item.UpdatedOn = moment(new Date(parseInt(item.UpdatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
                 })
               }else{
                   _this.$message.error(json.message);
