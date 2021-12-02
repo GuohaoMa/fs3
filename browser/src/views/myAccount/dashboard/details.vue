@@ -421,7 +421,7 @@ export default {
                     item.visible = false
                     item.CreatedOn = moment(new Date(parseInt(item.CreatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
                     item.UpdatedOn = moment(new Date(parseInt(item.UpdatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
-                    _this.tableData_2.sort(function(a, b){return a.BackupJobId - b.BackupJobId})
+                    _this.tableData_2.sort(function(a, b){return a.ID - b.ID})
                 })
               }else{
                   _this.$message.error(json.message);
