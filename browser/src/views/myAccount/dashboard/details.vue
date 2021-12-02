@@ -118,7 +118,7 @@
 
         <el-table
           :data="tableData_2" v-loading="loading" stripe empty-text="No data" v-else>
-          <el-table-column prop="BackupJobId" label="Backup Job ID"></el-table-column>
+          <el-table-column prop="ID" label="Rebuild ID"></el-table-column>
           <el-table-column prop="Status" label="Status">
             <template slot-scope="scope">
                 <div class="statusStyle"
@@ -161,7 +161,7 @@
             </template>
           </el-table-column>
           <el-table-column prop="PayloadCid" label="Data CID" min-width="110"></el-table-column>
-          <el-table-column prop="ID" label="Backup ID"></el-table-column>
+          <el-table-column prop="BackupJobId" label="Backup ID"></el-table-column>
           <el-table-column prop="CreatedOn" label="Date Created" width="120"></el-table-column>
           <el-table-column prop="UpdatedOn" label="Date Updated" width="120"></el-table-column>
         </el-table>
@@ -421,7 +421,7 @@ export default {
                     item.visible = false
                     item.CreatedOn = moment(new Date(parseInt(item.CreatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
                     item.UpdatedOn = moment(new Date(parseInt(item.UpdatedOn / 1000))).format("YYYY-MM-DD HH:mm:ss")
-                    _this.tableData_2.sort(function(a, b){return a.ID - b.ID})
+                    _this.tableData_2.sort(function(a, b){return a.BackupJobId - b.BackupJobId})
                 })
               }else{
                   _this.$message.error(json.message);
