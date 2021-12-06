@@ -581,6 +581,9 @@ export default {
             bottom: 0.2rem;
             width: 0.55rem;
             z-index: 9;
+            @media screen and (max-width:600px){
+                width: 40px;
+            }
             .el-icon-plus{
                 width: 0.55rem;
                 height: 0.55rem;
@@ -598,6 +601,15 @@ export default {
                 cursor: pointer;
                 transition: all;
                 transition-duration: .3s;
+                @media screen and (max-width:600px){
+                    width: 40px;
+                    height: 40px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    line-height: 40px;
+                    font-size: 15px;
+                }
             }
             .el-icon-plus-new{
                 background-color: #ff403c;
@@ -627,6 +639,15 @@ export default {
                         color: #fff;
                         cursor: pointer;
                         font-size: 0.18rem;
+                        @media screen and (max-width:999px){
+                            width: 30px;
+                            height: 30px;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            line-height: 30px;
+                            font-size: 15px;
+                        }
                     }
                 }
                 @-webkit-keyframes feba-btn-anim {
