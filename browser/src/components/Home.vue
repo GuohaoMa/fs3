@@ -718,7 +718,7 @@ export default {
             padding: 10px 12px 9px 12px;
             text-align: center;
             position: fixed;
-            z-index: 21;
+            z-index: 9999;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
             left: 0;
             top: 0;
