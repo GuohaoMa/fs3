@@ -2,18 +2,18 @@
     <div class="fs3_back">
       <div class="fs3_head">
         <div class="fs3_head_text">
-          <div class="titleBg">{{linkTitle}}</div>
-          <h1>{{linkTitle}}</h1>
+          <div class="titleBg">Jobs</div>
+          <h1>Jobs</h1>
         </div>
         <img src="@/assets/images/page_bg.png" class="bg" alt="">
       </div>
       <div class="fs3_cont">
-        <el-breadcrumb separator-class="el-icon-right">
-          <el-breadcrumb-item :to="{ name: 'my_account_dashboard' }">Dashboard</el-breadcrumb-item>
-          <el-breadcrumb-item>{{linkTitle}}</el-breadcrumb-item>
-        </el-breadcrumb>
+        <el-tabs v-model="activeName" @tab-click="handleClick">
+          <el-tab-pane label="Backup Jobs" name="backup_job"></el-tab-pane>
+          <el-tab-pane label="Rebuild Jobs" name="rebuild_job"></el-tab-pane>
+        </el-tabs>
         <el-table
-          :data="tableData" v-loading="loading" stripe empty-text="No data" v-if="$route.params.type == 'backup_job'">
+          :data="tableData" v-loading="loading" stripe empty-text="No data" v-if="activeName == 'backup_job'">
           <el-table-column prop="ID" label="Backup ID" width="100">
             <template slot-scope="scope">
               {{ scope.row.ID }}
@@ -128,9 +128,9 @@
 
         <el-table
           :data="tableData_2" v-loading="loading" stripe empty-text="No data" v-else>
-          <el-table-column prop="ID" label="Rebuild ID"></el-table-column>
-          <el-table-column prop="Name" label="Backup Plan Name"></el-table-column>
-          <el-table-column prop="Status" label="Status">
+          <el-table-column prop="ID" label="Rebuild ID" width="100"></el-table-column>
+          <el-table-column prop="Name" label="Backup Plan Name" width="180"></el-table-column>
+          <el-table-column prop="Status" label="Status" width="140">
             <template slot-scope="scope">
                 <div class="statusStyle"
                       v-if="scope.row.Status == 'Created'"
@@ -152,8 +152,8 @@
                 </div>
             </template>
           </el-table-column>
-          <el-table-column prop="MinerId" label="W3SSID"></el-table-column>
-          <el-table-column prop="DealCid" label="Deal CID" min-width="110">
+          <el-table-column prop="MinerId" label="W3SSID" width="120"></el-table-column>
+          <el-table-column prop="DealCid" label="Deal CID" min-width="200">
             <template slot-scope="scope">
                 <div class="hot-cold-box">
                     <el-popover
@@ -171,14 +171,14 @@
                 </div>
             </template>
           </el-table-column>
-          <el-table-column prop="PayloadCid" label="Data CID" min-width="110"></el-table-column>
-          <el-table-column prop="BackupJobId" label="Backup ID"></el-table-column>
+          <el-table-column prop="PayloadCid" label="Data CID" min-width="200"></el-table-column>
+          <el-table-column prop="BackupJobId" label="Backup ID" width="120"></el-table-column>
           <el-table-column prop="CreatedOn" label="Date Created" width="120"></el-table-column>
           <el-table-column prop="UpdatedOn" label="Date Updated" width="120"></el-table-column>
         </el-table>
       </div>
 
-      <div class="form_pagination" v-if="$route.params.type == 'backup_job'">
+      <div class="form_pagination" v-if="activeName == 'backup_job'">
         <div class="pagination">
           <el-pagination
             hide-on-single-page
@@ -332,6 +332,7 @@ export default {
             total: 0,
           },
           bodyWidth: document.documentElement.clientWidth < 1024 ? true : false,
+          activeName: 'backup_job'
         }
     },
     watch: {},
@@ -392,6 +393,10 @@ export default {
             _this.linkTitle = 'All Rebuild Job Details'
             _this.getData()
         }
+      },
+      handleClick(tab, event) {
+        let _this = this
+        console.log(tab, event);
       },
       copyTextToClipboard(text) {
           let _this = this
@@ -530,11 +535,13 @@ export default {
     },
     watch: {
         $route: function (to, from) {
-            this.productName()
+            // this.productName()
         }
     },
     mounted () {
-      this.productName()
+      // this.productName()
+      this.getData()
+      this.getData(1)
     },
     filters: {
         NumFormatPrice (value) {
@@ -732,7 +739,39 @@ export default {
     }
   }
   .fs3_cont{
-    padding: 0 0 0.4rem;
+    padding: 0.4rem 0;
+    .el-tabs /deep/{
+      .el-tabs__header{
+        margin: 0 3% 0.2rem;
+      }
+      .el-tabs__item{
+        color: #000;
+        &:hover{
+          color: #7ecef4;
+        }
+      }
+      .el-tabs__item.is-active{
+        color: #7ecef4;
+      }
+      .el-tabs__active-bar{
+        background-color: #7ecef4;
+      }
+      #tab-rebuild_job{
+        position: relative;
+        // &::before{
+        //   content: '';
+        //   position: absolute;
+        //   left: 0;
+        //   top: 25%;
+        //   bottom: 25%;
+        //   width: 1px;
+        //   background: #c0c0c0;
+        // }
+      }
+      .el-tabs__nav-wrap::after{
+        height: 1px;
+      }
+    }
     .el-breadcrumb /deep/{
       display: flex;
       justify-content: flex-end;
