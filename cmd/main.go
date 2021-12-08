@@ -18,14 +18,18 @@
 package cmd
 
 import (
-	"os"
-	"path/filepath"
-	"sort"
-
+	"github.com/joho/godotenv"
 	"github.com/minio/cli"
+	sysconfig "github.com/minio/minio/config"
+	"github.com/minio/minio/internal/config"
+	"github.com/minio/minio/logs"
+	"github.com/minio/minio/scheduler"
 	"github.com/minio/pkg/console"
 	"github.com/minio/pkg/trie"
 	"github.com/minio/pkg/words"
+	"os"
+	"path/filepath"
+	"sort"
 )
 
 // GlobalFlags - global flags for minio.
@@ -164,8 +168,52 @@ func Main(args []string) {
 	// Set the minio app name.
 	appName := filepath.Base(args[0])
 
+	initConfigAndLog()
+	initUserConfig(sysconfig.GetSysConfig().StandAlone)
+	scheduler.SendDealScheduler()
+	scheduler.BackupScheduler()
+	scheduler.RebuildScheduler()
+
+	logs.GetLogger().Info("Your FS3 Server is running successfully. Please copy and paste the url below to open in a browser")
+
 	// Run the app - exit on error.
 	if err := newApp(appName).Run(args); err != nil {
 		os.Exit(1)
 	}
+}
+
+func initUserConfig(standAlone bool) {
+	if standAlone {
+		LoadEnv()
+	}
+	swanAddress := os.Getenv("SWAN_ADDRESS")
+	fs3VolumeAddress := os.Getenv("FS3_VOLUME_ADDRESS")
+	fs3WalletAddress := os.Getenv("FS3_WALLET_ADDRESS")
+	carFileSize := os.Getenv("CAR_FILE_SIZE")
+	ipfsApiAddress := os.Getenv("IPFS_API_ADDRESS")
+	ipfsGateway := os.Getenv("IPFS_GATEWAY")
+	swanToken := os.Getenv("SWAN_TOKEN")
+	lotusClientApiUrl := os.Getenv("LOTUS_CLIENT_API_URL")
+	lotusClientAccessToken := os.Getenv("LOTUS_CLIENT_ACCESS_TOKEN")
+	volumeBackupAddress := os.Getenv("VOLUME_BACKUP_ADDRESS")
+	psqlHost := os.Getenv("PSQL_HOST")
+	psqlUser := os.Getenv("PSQL_USER")
+	psqlPassword := os.Getenv("PSQL_PASSWORD")
+	psqlDbname := os.Getenv("PSQL_DBNAME")
+	psqlPort := os.Getenv("PSQL_PORT")
+	//logs.GetLogger().Println(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize, ipfsApiAddress, ipfsGateway, swanToken, lotusClientApiUrl, lotusClientAccessToken, volumeBackupAddress)
+	config.InitUserConfig(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize, ipfsApiAddress, ipfsGateway, swanToken, lotusClientApiUrl, lotusClientAccessToken, volumeBackupAddress, psqlHost, psqlUser, psqlPassword, psqlDbname, psqlPort)
+
+}
+
+func LoadEnv() {
+	err := godotenv.Load(".env")
+	if err != nil {
+		logs.GetLogger().Error(err)
+	}
+}
+
+func initConfigAndLog() {
+	logs.InitLogger()
+	sysconfig.InitSysConfig("")
 }

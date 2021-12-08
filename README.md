@@ -1,232 +1,964 @@
 # FS3 Quickstart Guide
-[![Slack](https://slack.min.io/slack?type=svg)](https://slack.min.io) [![Docker Pulls](https://img.shields.io/docker/pulls/minio/minio.svg?maxAge=604800)](https://hub.docker.com/r/minio/minio/) [![license](https://img.shields.io/badge/license-AGPL%20V3-blue)](https://github.com/minio/minio/blob/master/LICENSE)
+[![Made by FilSwan](https://img.shields.io/badge/made%20by-FilSwan-green.svg)](https://www.filswan.com/)
+[![Chat on Slack](https://img.shields.io/badge/slack-filswan.slack.com-green.svg)](https://filswan.slack.com)
 
-[![MinIO](https://raw.githubusercontent.com/minio/minio/master/.github/logo.svg?sanitize=true)](https://min.io)
+- Join us on our [public Slack channel](https://filswan.slack.com) for news, discussions, and status updates. 
+- [Check out our medium](https://filswan.medium.com) for the latest posts and announcements.
 
-MinIO is a High Performance Object Storage released under GNU Affero General Public License v3.0. It is API compatible with Amazon S3 cloud storage service. Use MinIO to build high performance infrastructure for machine learning, analytics and application data workloads.
+## How to use
+### Prerequisite
+- Golang 1.15+.
+- Node Js 14.0+.
+- PostgreSQL 10.19+.
+- IPFS 0.8.0+.
+- Lotus node 1.13+.
 
-This README provides quickstart instructions on running MinIO on baremetal hardware, including Docker-based installations. For Kubernetes environments,
-use the [MinIO Kubernetes Operator](https://github.com/minio/operator/blob/master/README.md).
+__Note__: A Lotus full node is not a must for FS3 if a lite node is already configured to have connection with a Lotus full node. More information on how to config a lite node can be found at [Lotus Lite node](https://lotus.filecoin.io/docs/set-up/lotus-lite/).
 
-# Docker Installation
+## Functions
+* Upload files to FS3 as a local container for storage service.
+* Backup a single file or an entire bucket to FIL by using online deals service.
+* Backup the whole volume with customized schedulers(daily/weekly) using offline deals. 
+* Send volume backup task to the assigned storage provider automatically using Autobid module.
+* Rebuild the volume content from retrieved previous backup volume content specified by users.
+* Save all the deal information into PostgreSQL database.
+* List all the deals history and status.
 
-Use the following commands to run a standalone MinIO server on a Docker container.
-
-Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication
-require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically,
-with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html)
-for more complete documentation.
-
-## Stable
-
-Run the following command to run the latest stable image of MinIO on a Docker container using an ephemeral data volume:
-
+## Install Prerequisite Dependencies
+### IPFS node
+A running IPFS node is needed for CAR file generation and files uploading and storage. You can refer [IPFS Docs](https://docs.ipfs.io/install/) for installation instructions and configuration.
+### Lotus node
+A running lotus node is needed for CAR file information generation, deals sending and deals retrieval. You can refer [Lotus Docs](https://lotus.filecoin.io/docs/set-up/install/) for installation instructions and configuration. As mentioned before, a Lotus full node is not a must for FS3 server but if you dont have a lotus full node, a lite node which configured to connect to a full node is a required. More information on how to use a [Lotus Lite node](https://lotus.filecoin.io/docs/set-up/lotus-lite/).
+### PostgreSQL
+A PostgreSQL database is required to be pre-built for FS3 server usage. Check [PostgreSQL Tutorial](https://www.postgresqltutorial.com/) on installation and connection instructions. The required database schema and tables schema are listed below.
+#### Database Schema
 ```sh
-docker run -p 9000:9000 minio/minio server /data
+                          List of relations
+ Schema |                  Name                   |   Type   | Owner 
+--------+-----------------------------------------+----------+-------
+ public | psql_volume_backup_car_csvs             | table    | root
+ public | psql_volume_backup_car_csvs_id_seq      | sequence | root
+ public | psql_volume_backup_jobs                 | table    | root
+ public | psql_volume_backup_jobs_id_seq          | sequence | root
+ public | psql_volume_backup_metadata_csvs        | table    | root
+ public | psql_volume_backup_metadata_csvs_id_seq | sequence | root
+ public | psql_volume_backup_plans                | table    | root
+ public | psql_volume_backup_plans_id_seq         | sequence | root
+ public | psql_volume_backup_task_csvs            | table    | root
+ public | psql_volume_backup_task_csvs_id_seq     | sequence | root
+ public | psql_volume_rebuild_jobs                | table    | root
+ public | psql_volume_rebuild_jobs_id_seq         | sequence | root
+(12 rows)
 ```
 
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Browser, an embedded
-web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
-root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See
-[Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers,
-see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-
-> NOTE: To deploy MinIO on Docker with persistent storage, you must map local persistent directories from the host OS to the container using the
-  `docker -v` option. For example, `-v /mnt/data:/data` maps the host OS drive at `/mnt/data` to `/data` on the Docker container.
-
-## Edge
-
-Run the following command to run the bleeding-edge image of MinIO on a Docker container using an ephemeral data volume:
-
-```
-docker run -p 9000:9000 minio/minio:edge server /data
-```
-
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Browser, an embedded
-web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
-root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See
-[Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers,
-see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-
-> NOTE: To deploy MinIO on Docker with persistent storage, you must map local persistent directories from the host OS to the container using the
-  `docker -v` option. For example, `-v /mnt/data:/data` maps the host OS drive at `/mnt/data` to `/data` on the Docker container.
-
-# macOS
-
-Use the following commands to run a standalone MinIO server on macOS.
-
-Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication
-require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically,
-with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html)
-for more complete documentation.
-
-## Homebrew (recommended)
-
-Run the following command to install the latest stable MinIO package using [Homebrew](https://brew.sh/). Replace ``/data`` with the path to the drive or directory in which you want MinIO to store data.
-
+#### Tables schema
+##### Table psql_volume_backup_car_csvs
 ```sh
-brew install minio/stable/minio
-minio server /data
+                                          Table "public.psql_volume_backup_car_csvs"
+      Column      |           Type           | Collation | Nullable |                         Default                         
+------------------+--------------------------+-----------+----------+---------------------------------------------------------
+ id               | bigint                   |           | not null | nextval('psql_volume_backup_car_csvs_id_seq'::regclass)
+ created_at       | timestamp with time zone |           |          | 
+ updated_at       | timestamp with time zone |           |          | 
+ deleted_at       | timestamp with time zone |           |          | 
+ uuid             | text                     |           |          | 
+ source_file_name | text                     |           |          | 
+ source_file_path | text                     |           |          | 
+ source_file_md5  | text                     |           |          | 
+ source_file_size | bigint                   |           |          | 
+ car_file_name    | text                     |           |          | 
+ car_file_path    | text                     |           |          | 
+ car_file_md5     | text                     |           |          | 
+ car_file_url     | text                     |           |          | 
+ car_file_size    | bigint                   |           |          | 
+ deal_cid         | text                     |           |          | 
+ data_cid         | text                     |           |          | 
+ piece_cid        | text                     |           |          | 
+ miner_fid        | text                     |           |          | 
+ start_epoch      | bigint                   |           |          | 
+ source_id        | bigint                   |           |          | 
+ cost             | text                     |           |          | 
+Indexes:
+    "psql_volume_backup_car_csvs_pkey" PRIMARY KEY, btree (id)
+    "idx_psql_volume_backup_car_csvs_deleted_at" btree (deleted_at)
 ```
 
-> NOTE: If you previously installed minio using `brew install minio` then it is recommended that you reinstall minio from `minio/stable/minio` official repo instead.
-
+##### Table psql_volume_backup_jobs
 ```sh
-brew uninstall minio
-brew install minio/stable/minio
+                                   Table "public.psql_volume_backup_jobs"
+        Column         |  Type  | Collation | Nullable |                       Default                       
+-----------------------+--------+-----------+----------+-----------------------------------------------------
+ id                    | bigint |           | not null | nextval('psql_volume_backup_jobs_id_seq'::regclass)
+ name                  | text   |           |          | 
+ uuid                  | text   |           |          | 
+ source_file_name      | text   |           |          | 
+ miner_id              | text   |           |          | 
+ deal_cid              | text   |           |          | 
+ payload_cid           | text   |           |          | 
+ file_source_url       | text   |           |          | 
+ md5                   | text   |           |          | 
+ start_epoch           | bigint |           |          | 
+ piece_cid             | text   |           |          | 
+ file_size             | bigint |           |          | 
+ cost                  | text   |           |          | 
+ duration              | text   |           |          | 
+ status                | text   |           |          | 
+ created_on            | text   |           |          | 
+ updated_on            | text   |           |          | 
+ volume_backup_plan_id | bigint |           |          | 
+Indexes:
+    "psql_volume_backup_jobs_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "fk_psql_volume_backup_jobs_volume_backup_plan" FOREIGN KEY (volume_backup_plan_id) REFERENCES psql_volume_backup_plans(id)
+Referenced by:
+    TABLE "psql_volume_rebuild_jobs" CONSTRAINT "fk_psql_volume_rebuild_jobs_backup_job" FOREIGN KEY (backup_job_id) REFERENCES psql_volume_backup_jobs(id)
 ```
 
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Browser, an embedded
-web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
-root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See
-[Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers,
-see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-## Binary Download
-
-Use the following command to download and run a standalone MinIO server on macOS. Replace ``/data`` with the path to the drive or directory in which you want MinIO to store data.
-
+##### Table psql_volume_backup_metadata_csvs
 ```sh
-wget https://dl.min.io/server/minio/release/darwin-amd64/minio
-chmod +x minio
-./minio server /data
+                                          Table "public.psql_volume_backup_metadata_csvs"
+      Column      |           Type           | Collation | Nullable |                           Default                            
+------------------+--------------------------+-----------+----------+--------------------------------------------------------------
+ id               | bigint                   |           | not null | nextval('psql_volume_backup_metadata_csvs_id_seq'::regclass)
+ created_at       | timestamp with time zone |           |          | 
+ updated_at       | timestamp with time zone |           |          | 
+ deleted_at       | timestamp with time zone |           |          | 
+ uuid             | text                     |           |          | 
+ source_file_name | text                     |           |          | 
+ source_file_path | text                     |           |          | 
+ source_file_md5  | text                     |           |          | 
+ source_file_size | bigint                   |           |          | 
+ car_file_name    | text                     |           |          | 
+ car_file_path    | text                     |           |          | 
+ car_file_md5     | text                     |           |          | 
+ car_file_url     | text                     |           |          | 
+ car_file_size    | bigint                   |           |          | 
+ deal_cid         | text                     |           |          | 
+ data_cid         | text                     |           |          | 
+ piece_cid        | text                     |           |          | 
+ miner_fid        | text                     |           |          | 
+ start_epoch      | bigint                   |           |          | 
+ source_id        | bigint                   |           |          | 
+ cost             | text                     |           |          | 
+Indexes:
+    "psql_volume_backup_metadata_csvs_pkey" PRIMARY KEY, btree (id)
+    "idx_psql_volume_backup_metadata_csvs_deleted_at" btree (deleted_at)
 ```
 
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Browser, an embedded
-web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
-root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See
-[Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers,
-see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-
-# GNU/Linux
-
-Use the following command to run a standalone MinIO server on Linux hosts running 64-bit Intel/AMD architectures. Replace ``/data`` with the path to the drive or directory in which you want MinIO to store data.
-
+##### Table psql_volume_backup_plans
 ```sh
-wget https://dl.min.io/server/minio/release/linux-amd64/minio
-chmod +x minio
-./minio server /data
+                                Table "public.psql_volume_backup_plans"
+     Column     |  Type   | Collation | Nullable |                       Default                        
+----------------+---------+-----------+----------+------------------------------------------------------
+ id             | bigint  |           | not null | nextval('psql_volume_backup_plans_id_seq'::regclass)
+ name           | text    |           |          | 
+ interval       | text    |           |          | 
+ miner_region   | text    |           |          | 
+ price          | text    |           |          | 
+ duration       | text    |           |          | 
+ verified_deal  | boolean |           |          | 
+ fast_retrieval | boolean |           |          | 
+ status         | text    |           |          | 
+ last_backup_on | text    |           |          | 
+ created_on     | text    |           |          | 
+ updated_on     | text    |           |          | 
+Indexes:
+    "psql_volume_backup_plans_pkey" PRIMARY KEY, btree (id)
+Referenced by:
+    TABLE "psql_volume_backup_jobs" CONSTRAINT "fk_psql_volume_backup_jobs_volume_backup_plan" FOREIGN KEY (volume_backup_plan_id) REFERENCES psql_volume_backup_plans(id)
 ```
-
-Replace ``/data`` with the path to the drive or directory in which you want MinIO to store data.
-
-The following table lists supported architectures. Replace the `wget` URL with the architecture for your Linux host.
-
-| Architecture                   | URL                                                        |
-| --------                       | ------                                                     |
-| 64-bit Intel/AMD               | https://dl.min.io/server/minio/release/linux-amd64/minio   |
-| 64-bit ARM                     | https://dl.min.io/server/minio/release/linux-arm64/minio   |
-| 64-bit PowerPC LE (ppc64le)    | https://dl.min.io/server/minio/release/linux-ppc64le/minio |
-| IBM Z-Series (S390X)           | https://dl.min.io/server/minio/release/linux-s390x/minio   |
-
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Browser, an embedded
-web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
-root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See
-[Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers,
-see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-
-> NOTE: Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication
-require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically,
-with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html)
-for more complete documentation.
-
-# Microsoft Windows
-
-To run MinIO on 64-bit Windows hosts, download the MinIO executable from the following URL:
-
+##### Table psql_volume_backup_task_csvs
 ```sh
-https://dl.min.io/server/minio/release/windows-amd64/minio.exe
+                                          Table "public.psql_volume_backup_task_csvs"
+      Column      |           Type           | Collation | Nullable |                         Default                          
+------------------+--------------------------+-----------+----------+----------------------------------------------------------
+ id               | bigint                   |           | not null | nextval('psql_volume_backup_task_csvs_id_seq'::regclass)
+ created_at       | timestamp with time zone |           |          | 
+ updated_at       | timestamp with time zone |           |          | 
+ deleted_at       | timestamp with time zone |           |          | 
+ uuid             | text                     |           |          | 
+ source_file_name | text                     |           |          | 
+ miner_id         | text                     |           |          | 
+ deal_cid         | text                     |           |          | 
+ payload_cid      | text                     |           |          | 
+ file_source_url  | text                     |           |          | 
+ md5              | text                     |           |          | 
+ start_epoch      | bigint                   |           |          | 
+ piece_cid        | text                     |           |          | 
+ file_size        | bigint                   |           |          | 
+ cost             | text                     |           |          | 
+Indexes:
+    "psql_volume_backup_task_csvs_pkey" PRIMARY KEY, btree (id)
+    "idx_psql_volume_backup_task_csvs_deleted_at" btree (deleted_at)
 ```
-
-Use the following command to run a standalone MinIO server on the Windows host. Replace ``D:\`` with the path to the drive or directory in which you want MinIO to store data. You must change the terminal or powershell directory to the location of the ``minio.exe`` executable, *or* add the path to that directory to the system ``$PATH``:
-
+##### Table psql_volume_rebuild_jobs
 ```sh
-minio.exe server D:\
+                               Table "public.psql_volume_rebuild_jobs"
+    Column     |  Type  | Collation | Nullable |                       Default                        
+---------------+--------+-----------+----------+------------------------------------------------------
+ id            | bigint |           | not null | nextval('psql_volume_rebuild_jobs_id_seq'::regclass)
+ miner_id      | text   |           |          | 
+ deal_cid      | text   |           |          | 
+ payload_cid   | text   |           |          | 
+ status        | text   |           |          | 
+ created_on    | text   |           |          | 
+ updated_on    | text   |           |          | 
+ backup_job_id | bigint |           |          | 
+Indexes:
+    "psql_volume_rebuild_jobs_pkey" PRIMARY KEY, btree (id)
+Foreign-key constraints:
+    "fk_psql_volume_rebuild_jobs_backup_job" FOREIGN KEY (backup_job_id) REFERENCES psql_volume_backup_jobs(id)
 ```
 
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Browser, an embedded
-web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
-root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See
-[Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers,
-see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-> NOTE: Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication
-require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically,
-with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html)
-for more complete documentation.
-
-# FreeBSD
-
-MinIO does not provide an official FreeBSD binary. However, FreeBSD maintains an [upstream release](https://www.freshports.org/www/minio) using [pkg](https://github.com/freebsd/pkg):
-
-```sh
-pkg install minio
-sysrc minio_enable=yes
-sysrc minio_disks=/home/user/Photos
-service minio start
-```
 
 # Install from Source
-##Build the Source Code
-Install Filecoin dependency
+## Checkout source code
+```
+git clone https://github.com/filswan/fs3
+cd fs3
+git checkout <release_branch>
+```
+
+## Build the Source Code
+#### Build UI
+```bash
+cd browser
+npm install
+npm run release
+```
+#### Install Filecoin dependency
 ```bash
 sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git bzr jq pkg-config curl clang build-essential hwloc libhwloc-dev wget -y && sudo apt upgrade -y
 ```
-Install go module dependency
+#### Install go module dependency
 ``` bash 
-# get submodules
+cd ..
 git submodule update --init --recursive
-# build filecoin-ffi
 make ffi
-make 
 ```
+
+#### Set up FS3 configuration
+Set up and customize FS3 configuration by making modifications on `.env` file, which stores your information as environment variables. An example config is given as `.env.example` for reference. 
+``` bash
+vim .env
+```
+
+Modify the `.env` file based on your use cases:
+
+* __SWAN_ADDRESS__ : The address of filswan platform, default as `https://api.filswan.com`.
+* __FS3_VOLUME_ADDRESS__ : The address of FS3 VOLUME, default as `~/minio-data`. If changed, the FS3 server start command has to be changed accordingly. For example, if the 
+* __FS3_WALLET_ADDRESS__ : A wallet address is a must for sending deals to miner. 
+* __CAR_FILE_SIZE__ : A fixed car file size in bytes need to be predefined before generating car files for trunk via variable `CarFileSize`, such as `8589934592` for 8Gb as default.
+* __IPFS_API_ADDRESS__ :  An available IPFS address with port need to be set up as the format of `https://MyIPFSUrl:Port`. The configuration of IPFS node can be found at `~/.ipfs/config` by following [IPFS Docs](https://docs.ipfs.io/how-to/configure-node/#profiles). For example, look up `API` of `Addresses` in the `config` file, transform `/ip4/192.168.88.41/tcp/5001` into `http://127.0.0.1:5001`.
+* __IPFS_GATEWAY__ :  An available IPFS address with port need to be set up for file downloading as the format of `https://MyIPFSGatewayUrl:Port`. The configuration of IPFS node can be found at `~/.ipfs/config` by following [IPFS Docs](https://docs.ipfs.io/how-to/configure-node/#profiles). For example, look up `Gateway` of `Addresses` in the `config` file, transform `/ip4/192.168.88.41/tcp/8080` into `http://127.0.0.1:8080`.
+* __SWAN_TOKEN__ : A valid swan token is required for posting task on swan platform. It can be received after creating an account on [Filswan](https://www.filswan.com). Check [Filswan APIs](https://documenter.getpostman.com/view/13140808/TWDZJbzV) for more details on how to get an authorization token.
+* __LOTUS_CLIENT_API_URL__ : A valid lotus endpoint is required to connect to a Lotus node as the format of `http://[api:port]/rpc/v0`.The Lotus node come with its own local API endpoint,which can be found as explained in [Lotus Configuration](https://lotus.filecoin.io/docs/set-up/configuration/). For example, transform the endpoint `/ip4/0.0.0.0/tcp/1234/http` found in config file into `http://127.0.0.1:1234/rpc/v0`. Check [Lotus Docs](https://lotus.filecoin.io/) for more details.
+* __LOTUS_CLIENT_ACCESS_TOKEN__ :An `admin` permission token is required to talk to the lotus API endpoints. It can be generated by following the [API Access](https://lotus.filecoin.io/docs/developers/api-access/) steps. Check [Lotus Docs](https://lotus.filecoin.io/) for more details.
+* __PSQL_HOST__ : The host name of the machine on which the server is running.
+* __PSQL_USER__ : The user name to connect to the database(You must have the permission to do so,of course).
+* __PSQL_PASSWORD__ : The password for connecting to a database if password authentification is required.
+* __PSQL_DBNAME__ : The name of the database you want to connect to.
+* __PSQL_PORT__ : The database server port to which you want to connect.
+  
+__Note__:If the configuration is changed in the future, build up the FS3 server again to make the changes take effect.
+  
+#### Build up FS3 server
+``` bash
+make
+```
+
 ## Run a Standalone FS3 Server
 ``` bash
- ./minio server ~/minio-data
-```
-Use the following commands to compile and run a standalone MinIO server from source. Source installation is only intended for developers and advanced users. If you do not have a working Golang environment, please follow [How to install Golang](https://golang.org/doc/install). Minimum version required is [go1.16](https://golang.org/dl/#stable)
-
-```sh
-GO111MODULE=on go install github.com/minio/minio@latest
+./minio server ~/minio-data
 ```
 
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Browser, an embedded
-web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
-root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
+The default FS3 volume address `Fs3VolumeAddress` is set as `~/minio-data`, which can be changed in `.env`. If the volume address is changed in the future, build up the FS3 server again to make the changes take effect.
 
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See
-[Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers,
-see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
+The FS3 deployment starts using default root credentials `minioadmin:minioadmin` but you can change it with your own credentials.
 
+``` bash
+export MINIO_ROOT_USER= MY_FS3_ACCESS_KEY
+export MINIO_ROOT_PASSWORD=MY_FS3_SECRET_KEY
+```
 
-> NOTE: Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication
-require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically,
-with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html)
-for more complete documentation.
+If you change the credential, build up FS3 server again to make it take effect. Then re-run the fs3 server.
+``` bash
+make
 
-MinIO strongly recommends *against* using compiled-from-source MinIO servers for production environments.
+./minio server ~/minio-data
+```
+
+You can test the deployment using the FS3 Browser, an embedded
+web-based object browser built into FS3 Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
+root credentials. You can use the Browser to create buckets, upload objects, send deals, retrieve data and browse the contents of the FS3 server.
+
+You can also connect using any S3-compatible tool, such as the FS3 `mc` commandline tool.
+
+## FS3 API
+### Get FS3 API Token
+FS3 APIs are designed to do verification before performing any actions for safety consideration. An FS3 API token is generated from FS3 login API.
+
+POST `minio/webrpc`
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+# Body
+{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "web.Login",
+    "params":{
+        "username": "minioadmin", 
+        "password": "minioadmin"
+    }
+}
+```
+Response from POSTMAN
+```bash
+{
+    "jsonrpc": "2.0",
+    "result": {
+        "token": "eyJhbGc5cCI6IkpXVCJ9.eyJhY2Nlc3NLIiwiZXhwIjoxMJEuksJBALDYXbw9K",
+        "uiVersion": "2021-07-31T03:07:17Z"
+    },
+    "id": 1
+}
+```
+
+### Send Online Deals (single file)
+POST `minio/deal/{bucket}/{object}`
+
+#### Example: 
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{
+    "VerifiedDeal":"false",
+    "FastRetrieval":"true",
+    "MinerId":"t00000",
+    "Price": "0.000005",
+    "Duration":"1036800"
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "filename": "~/minio-data/test/waymo.zip",
+        "walletAddress": "wabkhtadjzfydxxda2vzyasg7cimd3jie6ermpw",
+        "verifiedDeal": "false",
+        "fastRetrieval": "true",
+        "dataCid": "bafykbzaceb5cfdrbg45khvhk4mza6",
+        "minerId": "t03354",
+        "price": "0.000005",
+        "duration": "1036700",                    //epochs
+        "dealCid": "bafyreicmqtttadqdksrqvunxhcgvfvb47m",
+        "timeStamp": "1628025191856290"           //miliseconds
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Retrieve Online Deals (single file)
+GET `minio/retrieve/{bucket}/{object}`
+
+#### Example: 
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+```
+
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "file_name": "waymo.zip",
+        "deals": [
+            {
+                "data": {
+                    "filename": "~/minio-data/test/waymo.zip",
+                    "walletAddress": "5wabkhtadjzfydxxdq66j4dubbhwpnojqd3jmpw",
+                    "verifiedDeal": "false",
+                    "fastRetrieval": "true",
+                    "dataCid": "bafykbzaceb5cfdpdupjd4mza6",
+                    "minerId": "t03354",
+                    "price": "0.000005",
+                    "duration": "1036700",
+                    "dealCid": "bafyreicmm2g654",
+                    "timeStamp": "1628025191856290"
+                },
+                "status": "success",
+                "message": "success"
+            },
+            {
+                "data": {
+                    "filename": "~/minio-data/testre/waymo.zip",
+                    "walletAddress": "5wabkhtadjzfydxxda2vzyasg7cimkcphswrq66j4dubbhwpnoj",
+                    "verifiedDeal": "false",
+                    "fastRetrieval": "true",
+                    "dataCid": "bafykbzaceb5cfdpdupjd4mza6",
+                    "minerId": "t03354",
+                    "price": "0.000005",
+                    "duration": "1036700",
+                    "dealCid": "bafyreijg227wlo4bge76bcxk7cw",
+                    "timeStamp": "1628026238100552"
+                },
+                "status": "success",
+                "message": "success"
+            }
+        ]
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Send Bucket Online Deals (bucket zip file)
+POST `minio/deals/{bucket}`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{
+    "VerifiedDeal":"false",
+    "FastRetrieval":"true",
+    "MinerId":"t00000",
+    "Price": "0.000005",
+    "Duration":"1036800"
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "filename": "~/minio-data/test_deals.zip",
+        "walletAddress": "h376xbytsd3jie6ermpw",
+        "verifiedDeal": "false",
+        "fastRetrieval": "true",
+        "dataCid": "bafk2bza5dgw6pubjodkscqpg",
+        "minerId": "t03354",
+        "price": "0.000005",
+        "duration": "518800",
+        "dealCid": "bafyreicvqh7krdhdnpkqwokze",
+        "timeStamp": "1629835134146540"
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Retrieve Bucket Online Deals (bucket zip file)
+GET `minio/bucket/retrieve/{bucket}`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+```
+
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "bucket_name": "20210824",
+        "deals": [
+            {
+                "data": {
+                    "filename": "~/minio-data/test_deals.zip",
+                    "walletAddress": "t3u7pum2vzyasg7cimkpnojqd3jie6erm",
+                    "verifiedDeal": "false",
+                    "fastRetrieval": "true",
+                    "dataCid": "bafykbvgxdpej7neeoqsnvuzppme",
+                    "minerId": "t03354",
+                    "price": "0.000005",
+                    "duration": "518700",
+                    "dealCid": "bafyrekm3lmusljgmvyriqid6kcaoed5kni",
+                    "timeStamp": "1629816006709676"
+                },
+                "status": "success",
+                "message": "success"
+            },
+            {
+                "data": {
+                    "filename": "~/minio-data/test_deals.zip",
+                    "walletAddress": "t3u7khtadjzfydxxdanojqd3jie6ermpw",
+                    "verifiedDeal": "false",
+                    "fastRetrieval": "true",
+                    "dataCid": "bafykbnvz5rgs7obwbfztqrr4ahwjue",
+                    "minerId": "t03354",
+                    "price": "0.000005",
+                    "duration": "518800",
+                    "dealCid": "bafyrgigdm4ppqzwt4vufm4m3pmuvolnfe",
+                    "timeStamp": "1629833844752891"
+                },
+                "status": "success",
+                "message": "success"
+            }
+        ]
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Send Bucket Offline Deals 
+POST `minio/offlinedeals/{bucket}`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{
+    "Task_Name":"test_name",
+    "Curated_Dataset":"test_dataset",
+	"Description":"test_description",
+	"Is_Public": "1",             // public: "1", private: "0"
+	"Type": "regular",            // "verified" if deal is verified else "regular"
+	"Miner_Id" : "test_miner",    // miner id is ignored if <Is_Public> is set to "1"    
+	"Min_Price" : "0.000005",
+	"Max_Price" : "0.00005",
+	"Tags" : "test_tag",
+	"Expire_Days" : "10"
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "bucket_name": "test",
+        "deals": {
+            "data": {
+                "taskname": "test-name",
+                "filename": "be450523-52ed-44f9-9828-8e382c0d15c8.csv",
+                "uuid": "d2d79d42-6f79-46fe-97bd-cd6f69c25116"
+            },
+            "status": "success",
+            "message": "Task created successfully."
+        }
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Add Volume Backup Plan
+POST `/minio/backup/add/plan`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{
+   "BackupPlanName":"daily",
+   "BackupInterval":"1",      //unit in day
+   "Price":"0.0005",          //unit in FIL
+   "Duration":"518400",       //unit in epoch
+   "VerifiedDeal":false,
+   "FastRetrieval":true
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "ID": 1,
+        "Name": "daily",
+        "Interval": "1",
+        "MinerRegion": "",
+        "Price": "0.0005",
+        "Duration": "518400",
+        "VerifiedDeal": false,
+        "FastRetrieval": true,
+        "Status": "Enabled",            // plan is set to "Enabled" as default when created frist time
+        "LastBackupOn": "",
+        "CreatedOn": "1638396058992883",
+        "UpdatedOn": "1638396058992883"
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Update Volume Backup Plan
+POST `/minio/backup/update/plan`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{
+   "BackupPlanId":"2",
+   "Status":"Disabled"
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "ID": 2,
+        "Name": "weekly",
+        "Interval": "1",
+        "MinerRegion": "",
+        "Price": "0.0005",
+        "Duration": "518400",
+        "VerifiedDeal": false,
+        "FastRetrieval": true,
+        "Status": "Disabled",
+        "LastBackupOn": "",
+        "CreatedOn": "1638396058992883",
+        "UpdatedOn": "1638396058992883"
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Retrieve Volume Backup Plans
+POST `/minio/backup/retrieve/plan`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{
+   "Offset":0,   //default as 0 
+   "Limit":10"   //default as 10
+   "Status": ["Enabled","Disabled"]  //default as all status
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "backupPlans": [
+            {
+                "ID": 1,
+                "Name": "daily",
+                "Interval": "1",
+                "MinerRegion": "",
+                "Price": "0.0005",
+                "Duration": "518400",
+                "VerifiedDeal": false,
+                "FastRetrieval": true,
+                "Status": "Enabled",
+                "LastBackupOn": "1638397353014173",
+                "CreatedOn": "1638396058992883",
+                "UpdatedOn": "1638396058992883"
+            }
+        ],
+        "TotalVolumeBackupPlan": 1
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Retrieve Volume Backup Jobs
+POST `/minio/backup/retrieve/volume`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{
+   "Offset":0,   //default as 0 
+   "Limit":10"   //default as 10
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "VolumeBackupJobs ": [
+            {
+                "ID": 1,
+                "Name": "daily",
+                "Uuid": "90-da-45-a0-14",
+                "SourceFileName": "minio-data",
+                "MinerId": "t000000",
+                "DealCid": "bafy",
+                "PayloadCid": "QmXv",
+                "FileSourceUrl": "https://ipfs.io/ipfs/QmXh",
+                "Md5": "",
+                "StartEpoch": 1347978,
+                "PieceCid": "baga",
+                "FileSize": 849400,
+                "Cost": "254331901032",
+                "Duration": "518400",
+                "Status": "Running",
+                "CreatedOn": "1638396635020859",
+                "UpdatedOn": "1638396721214519",
+                "VolumeBackupPlanID": 1,
+                "VolumeBackupPlan": {
+                    "ID": 0,
+                    "Name": "",
+                    "Interval": "",
+                    "MinerRegion": "",
+                    "Price": "",
+                    "Duration": "",
+                    "VerifiedDeal": false,
+                    "FastRetrieval": false,
+                    "Status": "",
+                    "LastBackupOn": "",
+                    "CreatedOn": "",
+                    "UpdatedOn": ""
+                }
+            },
+        ],
+        "totalVolumeBackupTasksCounts": 1,
+        "completedVolumeBackupTasksCounts": 0,
+        "inProcessVolumeBackupTasksCounts": 1,
+        "failedVolumeBackupTasksCounts": 0
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Add Volume Rebuild Job
+POST `/minio/rebuild/add/job`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{ 
+    "BackupTaskId": 1
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "ID": 1,
+        "MinerId": "t000000",
+        "DealCid": "bafy",
+        "PayloadCid": "QmXv",
+        "Status": "Created",
+        "CreatedOn": "1638398434961766",
+        "UpdatedOn": "1638398434961766",
+        "BackupJobId": 1,
+        "BackupJob": {
+            "ID": 0,
+            "Name": "",
+            "Uuid": "",
+            "SourceFileName": "",
+            "MinerId": "",
+            "DealCid": "",
+            "PayloadCid": "",
+            "FileSourceUrl": "",
+            "Md5": "",
+            "StartEpoch": 0,
+            "PieceCid": "",
+            "FileSize": 0,
+            "Cost": "",
+            "Duration": "",
+            "Status": "",
+            "CreatedOn": "",
+            "UpdatedOn": "",
+            "VolumeBackupPlanID": 0,
+            "VolumeBackupPlan": {
+                "ID": 0,
+                "Name": "",
+                "Interval": "",
+                "MinerRegion": "",
+                "Price": "",
+                "Duration": "",
+                "VerifiedDeal": false,
+                "FastRetrieval": false,
+                "Status": "",
+                "LastBackupOn": "",
+                "CreatedOn": "",
+                "UpdatedOn": ""
+            }
+        }
+    },
+    "status": "success",
+    "message": "success"
+}
+```
+
+### Retrieve Volume Rebuild Jobs
+POST `minio/rebuild/retrieve/volume`
+
+#### Example:
+
+Send request using POSTMAN
+
+``` bash
+# Headers
+## Use a new User-Agent instead of the default User-Agent in Postman
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36
+
+#Authorization
+Bearer Token = MY_FS3_TOKEN
+
+# Body
+{
+   "Offset":0,   //default as 0 
+   "Limit":10"   //default as 10
+}
+```
+Response from POSTMAN
+```bash
+{
+    "data": {
+        "volumeRebuildJobs": [
+            {
+                "ID": 1,
+                "MinerId": "t000000",
+                "DealCid": "bafy",
+                "PayloadCid": "QmXv",
+                "Status": "Created",
+                "CreatedOn": "1638398434961766",
+                "UpdatedOn": "1638398434961766",
+                "BackupPlanName": "daily",
+                "BackupJobId": 1,
+                "BackupJob": {
+                    "ID": 0,
+                    "Name": "",
+                    "Uuid": "",
+                    "SourceFileName": "",
+                    "MinerId": "",
+                    "DealCid": "",
+                    "PayloadCid": "",
+                    "FileSourceUrl": "",
+                    "Md5": "",
+                    "StartEpoch": 0,
+                    "PieceCid": "",
+                    "FileSize": 0,
+                    "Cost": "",
+                    "Duration": "",
+                    "Status": "",
+                    "CreatedOn": "",
+                    "UpdatedOn": "",
+                    "VolumeBackupPlanID": 0,
+                    "VolumeBackupPlan": {
+                        "ID": 0,
+                        "Name": "",
+                        "Interval": "",
+                        "MinerRegion": "",
+                        "Price": "",
+                        "Duration": "",
+                        "VerifiedDeal": false,
+                        "FastRetrieval": false,
+                        "Status": "",
+                        "LastBackupOn": "",
+                        "CreatedOn": "",
+                        "UpdatedOn": ""
+                    }
+                }
+            }
+        ],
+        "totalVolumeRebuildTasksCounts": 1,
+        "completedVolumeRebuildTasksCounts": 0,
+        "inProcessVolumeRebuildTasksCounts": 1,
+        "failedVolumeRebuildTasksCounts": 0
+    },
+    "status": "success",
+    "message": "success"
+}
+```
 
 # Deployment Recommendations
 
 ## Allow port access for Firewalls
 
-By default MinIO uses the port 9000 to listen for incoming connections. If your platform blocks the port by default, you may need to enable access to the port.
+By default FS3 uses the port 9000 to listen for incoming connections. If your platform blocks the port by default, you may need to enable access to the port.
 
 ### ufw
 
@@ -280,49 +1012,15 @@ service iptables restart
 ```
 
 ## Pre-existing data
-When deployed on a single drive, MinIO server lets clients access any pre-existing data in the data directory. For example, if MinIO is started with the command  `minio server /mnt/data`, any pre-existing data in the `/mnt/data` directory would be accessible to the clients.
+When deployed on a single drive, FS3 lets clients access any pre-existing data in the data directory. For example, if FS3 is started with the command  `minio server /mnt/data`, any pre-existing data in the `/mnt/data` directory would be accessible to the clients.
 
 The above statement is also valid for all gateway backends.
 
-# Test MinIO Connectivity
+# Test FS3 Connectivity
 
-## Test using MinIO Browser
-MinIO Server comes with an embedded web based object browser. Point your web browser to http://127.0.0.1:9000 to ensure your server has started successfully.
+## Test using FS3 Browser
+FS3 Server comes with an embedded web based object browser. Point your web browser to http://127.0.0.1:9000 to ensure your server has started successfully.
 
-![Screenshot](https://github.com/minio/minio/blob/master/docs/screenshots/minio-browser.png?raw=true)
+## License
 
-## Test using MinIO Client `mc`
-`mc` provides a modern alternative to UNIX commands like ls, cat, cp, mirror, diff etc. It supports filesystems and Amazon S3 compatible cloud storage services. Follow the MinIO Client [Quickstart Guide](https://docs.min.io/docs/minio-client-quickstart-guide) for further instructions.
-
-# Upgrading MinIO
-MinIO server supports rolling upgrades, i.e. you can update one MinIO instance at a time in a distributed cluster. This allows upgrades with no downtime. Upgrades can be done manually by replacing the binary with the latest release and restarting all servers in a rolling fashion. However, we recommend all our users to use [`mc admin update`](https://docs.min.io/docs/minio-admin-complete-guide.html#update) from the client. This will update all the nodes in the cluster simultaneously and restart them, as shown in the following command from the MinIO client (mc):
-
-```
-mc admin update <minio alias, e.g., myminio>
-```
-
-> NOTE: some releases might not allow rolling upgrades, this is always called out in the release notes and it is generally advised to read release notes before upgrading. In such a situation `mc admin update` is the recommended upgrading mechanism to upgrade all servers at once.
-
-## Important things to remember during MinIO upgrades
-
-- `mc admin update` will only work if the user running MinIO has write access to the parent directory where the binary is located, for example if the current binary is at `/usr/local/bin/minio`, you would need write access to `/usr/local/bin`.
-- `mc admin update` updates and restarts all servers simultaneously, applications would retry and continue their respective operations upon upgrade.
-- `mc admin update` is disabled in kubernetes/container environments, container environments provide their own mechanisms to rollout of updates.
-- In the case of federated setups `mc admin update` should be run against each cluster individually. Avoid updating `mc` to any new releases until all clusters have been successfully updated.
-- If using `kes` as KMS with MinIO, just replace the binary and restart `kes` more information about `kes` can be found [here](https://github.com/minio/kes/wiki)
-- If using Vault as KMS with MinIO, ensure you have followed the Vault upgrade procedure outlined here: https://www.vaultproject.io/docs/upgrading/index.html
-- If using etcd with MinIO for the federation, ensure you have followed the etcd upgrade procedure outlined here: https://github.com/etcd-io/etcd/blob/master/Documentation/upgrades/upgrading-etcd.md
-
-# Explore Further
-- [MinIO Erasure Code QuickStart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide)
-- [Use `mc` with MinIO Server](https://docs.min.io/docs/minio-client-quickstart-guide)
-- [Use `aws-cli` with MinIO Server](https://docs.min.io/docs/aws-cli-with-minio)
-- [Use `s3cmd` with MinIO Server](https://docs.min.io/docs/s3cmd-with-minio)
-- [Use `minio-go` SDK with MinIO Server](https://docs.min.io/docs/golang-client-quickstart-guide)
-- [The MinIO documentation website](https://docs.min.io)
-
-# Contribute to MinIO Project
-Please follow MinIO [Contributor's Guide](https://github.com/minio/minio/blob/master/CONTRIBUTING.md)
-
-# License
-Use of MinIO is governed by the GNU AGPLv3 license that can be found in the [LICENSE](https://github.com/minio/minio/blob/master/LICENSE) file.
+[AGPL](https://github.com/filswan/fs3/blob/master/LICENSE)
