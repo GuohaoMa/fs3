@@ -11,16 +11,17 @@ type UserConfigParams struct {
 	LotusClientApiUrl      string `json:"lotus_client_api_url"`
 	LotusClientAccessToken string `json:"lotus_client_access_token"`
 	VolumeBackupAddress    string `json:"volume_backup_address"`
-	PsqlHost               string `json:"psql_host"`
-	PsqlUser               string `json:"psql_user"`
-	PsqlPassword           string `json:"psql_password"`
-	PsqlDbname             string `json:"psql_dbname"`
-	PsqlPort               string `json:"psql_port"`
+	DBHost                 string `json:"db_host"`
+	DBUser                 string `json:"db_user"`
+	DBPassword             string `json:"db_password"`
+	DBName                 string `json:"db_name"`
+	DBPort                 string `json:"db_port"`
+	UserId                 int    `json:"user_id"`
 }
 
 var UserConfig *UserConfigParams
 
-func InitUserConfig(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize, ipfsApiAddress, ipfsGateway, swanToken, lotusClientApiUrl, lotusClientAccessToken, volumeBackupAddress, psqlHost, psqlUser, psqlPassword, psqlDbname, psqlPort string) *UserConfigParams {
+func InitUserConfig(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize, ipfsApiAddress, ipfsGateway, swanToken, lotusClientApiUrl, lotusClientAccessToken, volumeBackupAddress, dbHost, dbUser, dbPassword, dbName, dbPort string, userId int) *UserConfigParams {
 	UserConfig = new(UserConfigParams)
 	UserConfig.SwanAddress = swanAddress
 	UserConfig.Fs3VolumeAddress = fs3VolumeAddress
@@ -32,11 +33,12 @@ func InitUserConfig(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize
 	UserConfig.LotusClientApiUrl = lotusClientApiUrl
 	UserConfig.LotusClientAccessToken = lotusClientAccessToken
 	UserConfig.VolumeBackupAddress = volumeBackupAddress
-	UserConfig.PsqlHost = psqlHost
-	UserConfig.PsqlUser = psqlUser
-	UserConfig.PsqlPassword = psqlPassword
-	UserConfig.PsqlDbname = psqlDbname
-	UserConfig.PsqlPort = psqlPort
+	UserConfig.DBHost = dbHost
+	UserConfig.DBUser = dbUser
+	UserConfig.DBPassword = dbPassword
+	UserConfig.DBName = dbName
+	UserConfig.DBPort = dbPort
+	UserConfig.UserId = userId
 	return UserConfig
 }
 

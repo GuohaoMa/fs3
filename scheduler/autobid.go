@@ -12,7 +12,6 @@ import (
 	oshomedir "github.com/mitchellh/go-homedir"
 	"github.com/robfig/cron"
 	"gorm.io/gorm"
-	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -88,7 +87,7 @@ func SendAutobidDealScheduler(confDeal *clientmodel.ConfDeal) error {
 
 func UpdateActiveBackupTasksInDb() error {
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return err
@@ -101,7 +100,7 @@ func UpdateActiveBackupTasksInDb() error {
 	}
 	defer sqlDB.Close()
 
-	var backupJobs []PsqlVolumeBackupJob
+	var backupJobs []VolumeBackupJob
 	if err := db.Find(&backupJobs).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
@@ -153,7 +152,7 @@ func CheckDealStatus(dealCid string) (string, error) {
 
 func UpdateSentBackupTasksInDb(tasks [][]*libmodel.FileDesc) error {
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return err
@@ -169,7 +168,7 @@ func UpdateSentBackupTasksInDb(tasks [][]*libmodel.FileDesc) error {
 
 	//update backuptasks
 	for _, v := range tasks {
-		var backupJob PsqlVolumeBackupJob
+		var backupJob VolumeBackupJob
 		if err := db.Where("uuid=?", v[0].Uuid).First(&backupJob).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logs.GetLogger().Info("No record found in database")
@@ -232,18 +231,6 @@ type LotusJsonRpcParams struct {
 	Id      int           `json:"id"`
 }
 
-func LevelDbBackupPath() (string, error) {
-	volumeBackUpAddress := config.GetUserConfig().VolumeBackupAddress
-	levelDbName := ".leveldb.db"
-	levelDbPath := filepath.Join(volumeBackUpAddress, levelDbName)
-	expandedDir, err := oshomedir.Expand(levelDbPath)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return "", err
-	}
-	return expandedDir, nil
-}
-
 type VolumeBackupTasks struct {
 	VolumeBackupPlans                []VolumeBackupPlan `json:"volumeBackupPlans"`
 	VolumeBackupTasksCounts          int                `json:"backupTasksCounts"`
@@ -251,13 +238,6 @@ type VolumeBackupTasks struct {
 	CompletedVolumeBackupTasksCounts int                `json:"completedVolumeBackupTasksCounts"`
 	InProcessVolumeBackupTasksCounts int                `json:"inProcessVolumeBackupTasksCounts"`
 	FailedVolumeBackupTasksCounts    int                `json:"failedVolumeBackupTasksCounts"`
-}
-
-type VolumeBackupPlan struct {
-	BackupPlanName        string                 `json:"backupPlanName"`
-	BackupPlanId          int                    `json:"backupPlanId"`
-	BackupPlanTasks       []VolumeBackupPlanTask `json:"backupPlanTasks"`
-	BackupPlanTasksCounts int                    `json:"backupPlanTasksCounts"`
 }
 
 type BackupPlanTaskInfo struct {

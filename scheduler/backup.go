@@ -19,7 +19,7 @@ import (
 	oshomedir "github.com/mitchellh/go-homedir"
 	"github.com/robfig/cron"
 	"github.com/shopspring/decimal"
-	"gorm.io/driver/postgres"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	ioioutil "io/ioutil"
 	"net/http"
@@ -134,7 +134,7 @@ func BackupVolumeScheduler() error {
 
 func BackupVolumeJobs(volumeBackupRequests []VolumeBackupRequest) error {
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return err
@@ -210,7 +210,8 @@ func BackupVolumeJobs(volumeBackupRequests []VolumeBackupRequest) error {
 		logs.GetLogger().Info("car files created in ", confCar.OutputDir)
 
 		for _, v := range carCsvStructList {
-			fileDesc := PsqlVolumeBackupCarCsv{
+			fileDesc := VolumeBackupCarCsv{
+				UserId:         config.GetUserConfig().UserId,
 				Uuid:           v.Uuid,
 				SourceFileName: v.SourceFileName,
 				SourceFilePath: v.SourceFilePath,
@@ -249,8 +250,8 @@ func BackupVolumeJobs(volumeBackupRequests []VolumeBackupRequest) error {
 		}
 		logs.GetLogger().Info("car files uploaded")
 
-		var uploadedFileDesc PsqlVolumeBackupCarCsv
-		if err := db.Last(&uploadedFileDesc).Error; err != nil {
+		var uploadedFileDesc VolumeBackupCarCsv
+		if err := db.Where("user_id=?", config.GetUserConfig().UserId).Last(&uploadedFileDesc).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logs.GetLogger().Info("No record found in database")
 				return nil
@@ -261,6 +262,7 @@ func BackupVolumeJobs(volumeBackupRequests []VolumeBackupRequest) error {
 		}
 
 		for _, v := range uploadedCarCsvStructList {
+			uploadedFileDesc.UserId = config.GetUserConfig().UserId
 			uploadedFileDesc.Uuid = v.Uuid
 			uploadedFileDesc.SourceFileName = v.SourceFileName
 			uploadedFileDesc.SourceFilePath = v.SourceFilePath
@@ -330,7 +332,8 @@ func BackupVolumeJobs(volumeBackupRequests []VolumeBackupRequest) error {
 
 		// save metadata
 		for _, v := range metadataCsvStructList {
-			metadata := PsqlVolumeBackupMetadataCsv{
+			metadata := VolumeBackupMetadataCsv{
+				UserId:         config.GetUserConfig().UserId,
 				Uuid:           v.Uuid,
 				SourceFileName: v.SourceFileName,
 				SourceFilePath: v.SourceFilePath,
@@ -368,7 +371,7 @@ func BackupVolumeJobs(volumeBackupRequests []VolumeBackupRequest) error {
 
 func AddBackupVolumeJobs(plansId []int) ([]VolumeBackupRequest, error) {
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return nil, err
@@ -386,7 +389,7 @@ func AddBackupVolumeJobs(plansId []int) ([]VolumeBackupRequest, error) {
 
 	var volumeBackupRequests []VolumeBackupRequest
 	for _, v := range plansId {
-		var backupPlan PsqlVolumeBackupPlan
+		var backupPlan VolumeBackupPlan
 		if err := db.First(&backupPlan, v).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logs.GetLogger().Info("No record found in database")
@@ -396,7 +399,15 @@ func AddBackupVolumeJobs(plansId []int) ([]VolumeBackupRequest, error) {
 				continue
 			}
 		}
-		backupJob := PsqlVolumeBackupJob{
+		var count []VolumeBackupJob
+		var userBackupJobsCount int64
+		if err := db.Where("user_id=?", config.GetUserConfig().UserId).Find(&count).Count(&userBackupJobsCount).Error; err != nil {
+			logs.GetLogger().Error(err)
+			continue
+		}
+		backupJob := VolumeBackupJob{
+			UserBackupJobId:    int(userBackupJobsCount) + 1,
+			UserId:             config.GetUserConfig().UserId,
 			Name:               backupPlan.Name,
 			VolumeBackupPlanID: backupPlan.ID,
 			Duration:           backupPlan.Duration,
@@ -405,16 +416,11 @@ func AddBackupVolumeJobs(plansId []int) ([]VolumeBackupRequest, error) {
 			Status:             StatusBackupTaskCreated,
 		}
 		if err := db.Create(&backupJob).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				logs.GetLogger().Info("No record found in database")
-				continue
-			} else {
-				logs.GetLogger().Error(err)
-				continue
-			}
+			logs.GetLogger().Error(err)
+			continue
 		}
-		var job PsqlVolumeBackupJob
-		if err := db.Last(&job).Error; err != nil {
+		var job VolumeBackupJob
+		if err := db.Where("user_id=?", config.GetUserConfig().UserId).Last(&job).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logs.GetLogger().Info("No record found in database")
 				continue
@@ -435,7 +441,7 @@ func AddBackupVolumeJobs(plansId []int) ([]VolumeBackupRequest, error) {
 
 func UpdateLastBackupTime(plansId []int) error {
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return err
@@ -450,19 +456,22 @@ func UpdateLastBackupTime(plansId []int) error {
 	defer sqlDB.Close()
 
 	for _, v := range plansId {
-		var plan PsqlVolumeBackupPlan
+		var plan VolumeBackupPlan
 		db.Where("ID = ?", v).First(&plan)
 		timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
 		plan.LastBackupOn = timestamp
-		db.Save(plan)
+		if err := db.Save(&plan).Error; err != nil {
+			logs.GetLogger().Error(err)
+			return err
+		}
 	}
 	return err
 }
 
-func GetRunningBackupPlans() ([]PsqlVolumeBackupPlan, error) {
+func GetRunningBackupPlans() ([]VolumeBackupPlan, error) {
 	//get backupplans
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return nil, err
@@ -476,7 +485,7 @@ func GetRunningBackupPlans() ([]PsqlVolumeBackupPlan, error) {
 	}
 	defer sqlDB.Close()
 
-	var plans []PsqlVolumeBackupPlan
+	var plans []VolumeBackupPlan
 	result := db.Where("status = ?", StatusBackupPlanEnabled).Find(&plans)
 
 	return plans, result.Error
@@ -672,7 +681,8 @@ func SaveBackupTaskToDb(task []*subcommand.Deal, backupPlanId int, backupTaskId 
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
 
 	for _, v := range tasks {
-		task := PsqlVolumeBackupTaskCsv{
+		task := VolumeBackupTaskCsv{
+			UserId:         config.GetUserConfig().UserId,
 			Uuid:           v.Uuid,
 			SourceFileName: v.SourceFileName,
 			MinerId:        v.MinerId,
@@ -688,10 +698,10 @@ func SaveBackupTaskToDb(task []*subcommand.Deal, backupPlanId int, backupTaskId 
 		result := db.Create(&task)
 		if result.Error != nil {
 			logs.GetLogger().Error(result.Error)
-			return result.Error
+			continue
 		}
 
-		var job PsqlVolumeBackupJob
+		var job VolumeBackupJob
 		db.Where("id=?", backupTaskId).First(&job)
 		job.Status = StatusBackupTaskRunning
 		job.UpdatedOn = timestamp
@@ -706,13 +716,16 @@ func SaveBackupTaskToDb(task []*subcommand.Deal, backupPlanId int, backupTaskId 
 		job.PieceCid = task.PieceCid
 		job.FileSize = task.FileSize
 		job.Cost = task.Cost
-		db.Save(&job)
+		if err := db.Save(&job).Error; err != nil {
+			logs.GetLogger().Error(err)
+			continue
+		}
 	}
 	return nil
 }
 
-func GetBackupPlanInfo(db *gorm.DB, backupPlanId int) (PsqlVolumeBackupPlan, error) {
-	var plan PsqlVolumeBackupPlan
+func GetBackupPlanInfo(db *gorm.DB, backupPlanId int) (VolumeBackupPlan, error) {
+	var plan VolumeBackupPlan
 	db.Where("id = ?", backupPlanId).First(&plan)
 	return plan, nil
 }
@@ -739,14 +752,14 @@ type ClientImportCar struct {
 	IsCAR bool
 }
 
-func GetPsqlDb() (*gorm.DB, error) {
-	host := config.GetUserConfig().PsqlHost
-	user := config.GetUserConfig().PsqlUser
-	password := config.GetUserConfig().PsqlPassword
-	dbname := config.GetUserConfig().PsqlDbname
-	port := config.GetUserConfig().PsqlPort
-	dsn := "host=" + host + " user=" + user + " password=" + password + " dbname=" + dbname + " port=" + port + " sslmode=disable"
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+func GetFS3Db() (*gorm.DB, error) {
+	host := config.GetUserConfig().DBHost
+	user := config.GetUserConfig().DBUser
+	password := config.GetUserConfig().DBPassword
+	dbname := config.GetUserConfig().DBName
+	port := config.GetUserConfig().DBPort
+	dsn := user + ":" + password + "@tcp(" + host + ":" + port + ")/" + dbname + "?charset=utf8mb4&parseTime=True&loc=Local"
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return nil, err
@@ -754,23 +767,33 @@ func GetPsqlDb() (*gorm.DB, error) {
 	return db, err
 }
 
-type PsqlVolumeBackupPlan struct {
-	ID            int `gorm:"primary_key"`
-	Name          string
-	Interval      string
-	MinerRegion   string
-	Price         string
-	Duration      string
-	VerifiedDeal  bool
-	FastRetrieval bool
-	Status        string
-	LastBackupOn  string
-	CreatedOn     string
-	UpdatedOn     string
+type User struct {
+	ID     int `gorm:"primary_key"`
+	UserId int
 }
 
-type PsqlVolumeBackupJob struct {
+type VolumeBackupPlan struct {
+	ID               int `gorm:"primary_key"`
+	UserId           int
+	UserBackupPlanId int
+	Name             string
+	Interval         string
+	MinerRegion      string
+	Price            string
+	Duration         string
+	VerifiedDeal     bool
+	FastRetrieval    bool
+	Status           string
+	LastBackupOn     string
+	CreatedOn        string
+	UpdatedOn        string
+	User             User `gorm:"foreignKey:UserID"`
+}
+
+type VolumeBackupJob struct {
 	ID                 int `gorm:"primary_key"`
+	UserId             int
+	UserBackupJobId    int
 	Name               string
 	Uuid               string
 	SourceFileName     string
@@ -788,11 +811,12 @@ type PsqlVolumeBackupJob struct {
 	CreatedOn          string
 	UpdatedOn          string
 	VolumeBackupPlanID int
-	VolumeBackupPlan   PsqlVolumeBackupPlan `gorm:"foreignKey:VolumeBackupPlanID"`
+	VolumeBackupPlan   VolumeBackupPlan `gorm:"foreignKey:VolumeBackupPlanID"`
 }
 
-type PsqlVolumeBackupCarCsv struct {
-	gorm.Model
+type VolumeBackupCarCsv struct {
+	ID             int `gorm:"primary_key"`
+	UserId         int
 	Uuid           string
 	SourceFileName string
 	SourceFilePath string
@@ -812,8 +836,9 @@ type PsqlVolumeBackupCarCsv struct {
 	Cost           string
 }
 
-type PsqlVolumeBackupMetadataCsv struct {
-	gorm.Model
+type VolumeBackupMetadataCsv struct {
+	ID             int `gorm:"primary_key"`
+	UserId         int
 	Uuid           string
 	SourceFileName string
 	SourceFilePath string
@@ -833,8 +858,9 @@ type PsqlVolumeBackupMetadataCsv struct {
 	Cost           string
 }
 
-type PsqlVolumeBackupTaskCsv struct {
-	gorm.Model
+type VolumeBackupTaskCsv struct {
+	ID             int `gorm:"primary_key"`
+	UserId         int
 	Uuid           string
 	SourceFileName string
 	MinerId        string

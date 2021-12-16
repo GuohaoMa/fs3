@@ -30,7 +30,7 @@ require (
 	github.com/filswan/go-swan-client v0.0.38
 	github.com/filswan/go-swan-lib v0.2.52
 	github.com/go-ldap/ldap/v3 v3.2.4
-	github.com/go-sql-driver/mysql v1.5.0
+	github.com/go-sql-driver/mysql v1.6.0
 	github.com/gomodule/redigo v2.0.0+incompatible
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/handlers v1.5.1
@@ -96,6 +96,7 @@ require (
 	golang.org/x/tools v0.1.1 // indirect
 	google.golang.org/api v0.31.0
 	gopkg.in/yaml.v2 v2.4.0
+	gorm.io/driver/mysql v1.2.1
 	gorm.io/driver/postgres v1.2.3
 	gorm.io/gorm v1.22.4
 )

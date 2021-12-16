@@ -33,13 +33,12 @@ func RebuildScheduler() {
 		logs.GetLogger().Error(err)
 		return
 	}
-
 	c.Start()
 }
 
 func RebuildVolumeScheduler() error {
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return err
@@ -53,8 +52,29 @@ func RebuildVolumeScheduler() error {
 	}
 	defer sqlDB.Close()
 
-	//get one running rebuild jobs from db
-	runningRebuildJobs, err := GetOneRunningRebuildJob(db)
+	////get one running rebuild jobs from db
+	//runningRebuildJobs, err := GetOneRunningRebuildJob(db)
+	//if err != nil {
+	//	logs.GetLogger().Error(err)
+	//	return err
+	//}
+	//if runningRebuildJobs == nil {
+	//	return err
+	//}
+	//if runningRebuildJobs[0].ID == 0 {
+	//	logs.GetLogger().Info("No running rebuild job")
+	//	return err
+	//}
+	//
+	////retrieve
+	//err = RebuildVolumeAndUpdateDb(runningRebuildJobs[0], db)
+	//if err != nil {
+	//	logs.GetLogger().Error(err)
+	//	return err
+	//}
+
+	//get one running rebuild jobs per user from db
+	runningRebuildJobs, err := GetOneRunningRebuildJobPerUser(db)
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return err
@@ -68,7 +88,7 @@ func RebuildVolumeScheduler() error {
 	}
 
 	//retrieve
-	err = RebuildVolumeAndUpdateDb(runningRebuildJobs[0], db)
+	err = RebuildVolumeAndUpdateDbPerUser(runningRebuildJobs, db)
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return err
@@ -76,19 +96,46 @@ func RebuildVolumeScheduler() error {
 	return err
 }
 
-func GetOneRunningRebuildJob(db *gorm.DB) ([]PsqlVolumeRebuildJob, error) {
-	//get backupplans
-	var runningRebuildJob PsqlVolumeRebuildJob
+func GetOneRunningRebuildJob(db *gorm.DB) ([]VolumeRebuildJob, error) {
+	var runningRebuildJob VolumeRebuildJob
 	if err := db.Where("status=?", StatusRebuildTaskCreated).Or("status=?", StatusRebuildTaskRunning).First(&runningRebuildJob).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
 		} else {
 			logs.GetLogger().Error(err)
-			return []PsqlVolumeRebuildJob{}, err
+			return []VolumeRebuildJob{}, err
 		}
 	}
-	var runningRebuildJobs []PsqlVolumeRebuildJob
+	var runningRebuildJobs []VolumeRebuildJob
 	runningRebuildJobs = append(runningRebuildJobs, runningRebuildJob)
+	return runningRebuildJobs, nil
+}
+
+func GetOneRunningRebuildJobPerUser(db *gorm.DB) ([]VolumeRebuildJob, error) {
+	var users []User
+	if err := db.Find(&users).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+			return []VolumeRebuildJob{}, nil
+		} else {
+			logs.GetLogger().Error(err)
+			return []VolumeRebuildJob{}, err
+		}
+	}
+	var runningRebuildJobs []VolumeRebuildJob
+	for _, v := range users {
+		var runningRebuildJob VolumeRebuildJob
+		if err := db.Where("user_id=? And status=?", v.UserId, StatusRebuildTaskCreated).Or("status=?", StatusRebuildTaskRunning).First(&runningRebuildJob).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				logs.GetLogger().Info("No record found in database")
+			} else {
+				logs.GetLogger().Error(err)
+				return []VolumeRebuildJob{}, err
+			}
+		}
+		runningRebuildJobs = append(runningRebuildJobs, runningRebuildJob)
+		return runningRebuildJobs, nil
+	}
 	return runningRebuildJobs, nil
 }
 
@@ -111,7 +158,7 @@ type VolumeRebuildJobs struct {
 	FailedVolumeRebuildTasksCounts    int                 `json:"failedVolumeRebuildTasksCounts"`
 }
 
-func RebuildVolumeAndUpdateDb(rebuildJob PsqlVolumeRebuildJob, db *gorm.DB) error {
+func RebuildVolumeAndUpdateDb(rebuildJob VolumeRebuildJob, db *gorm.DB) error {
 	// get volume path
 	volumePath, err := VolumePath()
 	if err != nil {
@@ -144,12 +191,53 @@ func RebuildVolumeAndUpdateDb(rebuildJob PsqlVolumeRebuildJob, db *gorm.DB) erro
 	rebuildTimestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
 	rebuildJob.UpdatedOn = rebuildTimestamp
 	rebuildJob.Status = StatusRebuildTaskCompleted
-	db.Save(&rebuildJob)
 	if err := db.Save(&rebuildJob).Error; err != nil {
 		logs.GetLogger().Error(err)
 		return err
 	}
 	return err
+}
+
+func RebuildVolumeAndUpdateDbPerUser(rebuildJobs []VolumeRebuildJob, db *gorm.DB) error {
+	for _, v := range rebuildJobs {
+		// get volume path
+		volumePath, err := VolumePath()
+		if err != nil {
+			logs.GetLogger().Error(err)
+			continue
+		}
+
+		timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
+
+		//rename previous version volume
+		if _, err := os.Stat(volumePath); !os.IsNotExist(err) {
+			dir, file := filepath.Split(volumePath)
+			fileBase, fileExt := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), filepath.Ext(file)
+			_, err = exec.Command("mv", volumePath, dir+fileBase+"_"+timestamp+fileExt).Output()
+			if err != nil {
+				logs.GetLogger().Error(err)
+				continue
+			}
+		}
+
+		//retrieve deal
+		err = LotusRpcClientRetrieve(v.MinerId, v.PayloadCid, volumePath)
+		if err != nil {
+			logs.GetLogger().Error(err)
+			continue
+		}
+		logs.GetLogger().Info("Rebuild job done, ID: ", v.ID)
+
+		//update db
+		rebuildTimestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
+		v.UpdatedOn = rebuildTimestamp
+		v.Status = StatusRebuildTaskCompleted
+		if err := db.Save(&v).Error; err != nil {
+			logs.GetLogger().Error(err)
+			continue
+		}
+	}
+	return nil
 }
 
 func LotusRpcClientRetrieve(minerId string, payloadCid string, outputPath string) error {
@@ -209,14 +297,17 @@ type ClientRetrieveDealParamDataPartTwo struct {
 	IsCAR bool
 }
 
-type PsqlVolumeRebuildJob struct {
-	ID          int `gorm:"primary_key"`
-	MinerId     string
-	DealCid     string
-	PayloadCid  string
-	Status      string
-	CreatedOn   string
-	UpdatedOn   string
-	BackupJobId int
-	BackupJob   PsqlVolumeBackupJob
+type VolumeRebuildJob struct {
+	ID               int `gorm:"primary_key"`
+	UserId           int
+	UserRebuildJobId int
+	MinerId          string
+	DealCid          string
+	PayloadCid       string
+	Status           string
+	CreatedOn        string
+	UpdatedOn        string
+	BackupJobId      int
+	BackupPlanName   string
+	BackupJob        VolumeBackupJob
 }

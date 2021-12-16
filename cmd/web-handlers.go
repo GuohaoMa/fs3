@@ -38,7 +38,6 @@ import (
 	"github.com/minio/minio/internal/config"
 	"github.com/minio/minio/logs"
 	oshomedir "github.com/mitchellh/go-homedir"
-	"github.com/shopspring/decimal"
 	"github.com/syndtr/goleveldb/leveldb"
 	"mime/multipart"
 
@@ -84,7 +83,7 @@ import (
 	"github.com/filswan/go-swan-client/subcommand"
 	libmodel "github.com/filswan/go-swan-lib/model"
 	ipfsClient "github.com/ipfs/go-ipfs-http-client"
-	"gorm.io/driver/postgres"
+	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	ioioutil "io/ioutil"
 	"os/exec"
@@ -3970,14 +3969,14 @@ func LevelDbPath() (string, error) {
 	return expandedDir, nil
 }
 
-func GetPsqlDb() (*gorm.DB, error) {
-	host := config.GetUserConfig().PsqlHost
-	user := config.GetUserConfig().PsqlUser
-	password := config.GetUserConfig().PsqlPassword
-	dbname := config.GetUserConfig().PsqlDbname
-	port := config.GetUserConfig().PsqlPort
-	dsn := "host=" + host + " user=" + user + " password=" + password + " dbname=" + dbname + " port=" + port + " sslmode=disable"
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+func GetFS3Db() (*gorm.DB, error) {
+	host := config.GetUserConfig().DBHost
+	user := config.GetUserConfig().DBUser
+	password := config.GetUserConfig().DBPassword
+	dbname := config.GetUserConfig().DBName
+	port := config.GetUserConfig().DBPort
+	dsn := user + ":" + password + "@tcp(" + host + ":" + port + ")/" + dbname + "?charset=utf8mb4&parseTime=True&loc=Local"
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return nil, err
@@ -4026,33 +4025,18 @@ type VolumeBackupJobPlan struct {
 	UpdatedOn      string `json:"updatedOn"`
 }
 
-type VolumeBackupTasks struct {
-	VolumeBackupPlans                []VolumeBackupPlan `json:"volumeBackupPlans"`
-	VolumeBackupTasksCounts          int                `json:"backupTasksCounts"`
-	VolumeBackupPlansCounts          int                `json:"backupPlansCounts"`
-	CompletedVolumeBackupTasksCounts int                `json:"completedVolumeBackupTasksCounts"`
-	InProcessVolumeBackupTasksCounts int                `json:"inProcessVolumeBackupTasksCounts"`
-	FailedVolumeBackupTasksCounts    int                `json:"failedVolumeBackupTasksCounts"`
-}
-
 type RetrieveVolumeResponse struct {
-	Data    VolumeBackupTasks `json:"data"`
-	Status  string            `json:"status"`
-	Message string            `json:"message"`
+	Data    RetrieveVolume `json:"data"`
+	Status  string         `json:"status"`
+	Message string         `json:"message"`
 }
 
-type PsqlRetrieveVolumeResponse struct {
-	Data    PsqlRetrieveVolume `json:"data"`
-	Status  string             `json:"status"`
-	Message string             `json:"message"`
-}
-
-type PsqlRetrieveVolume struct {
-	VolumeBackupJobs                 []PsqlVolumeBackupJob `json:"VolumeBackupJobs"`
-	TotalVolumeBackupTasksCounts     int                   `json:"totalVolumeBackupTasksCounts"`
-	CompletedVolumeBackupTasksCounts int                   `json:"completedVolumeBackupTasksCounts"`
-	InProcessVolumeBackupTasksCounts int                   `json:"inProcessVolumeBackupTasksCounts"`
-	FailedVolumeBackupTasksCounts    int                   `json:"failedVolumeBackupTasksCounts"`
+type RetrieveVolume struct {
+	VolumeBackupJobs                 []VolumeBackupJob `json:"VolumeBackupJobs"`
+	TotalVolumeBackupTasksCounts     int               `json:"totalVolumeBackupTasksCounts"`
+	CompletedVolumeBackupTasksCounts int               `json:"completedVolumeBackupTasksCounts"`
+	InProcessVolumeBackupTasksCounts int               `json:"inProcessVolumeBackupTasksCounts"`
+	FailedVolumeBackupTasksCounts    int               `json:"failedVolumeBackupTasksCounts"`
 }
 
 type RetrieveResponse struct {
@@ -5940,221 +5924,6 @@ func IsDirEmpty(name string) (bool, error) {
 	return false, err
 }
 
-func (web *webAPIHandlers) SendOfflineDealsVolume(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebSendOfflineDeals")
-
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	//get request body
-	decoder := json.NewDecoder(r.Body)
-	var volumeBackupRequest VolumeBackupRequest
-	err := decoder.Decode(&volumeBackupRequest)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	backupPlanName, backupPlanId, backupTaskId := volumeBackupRequest.BackupPlanName, volumeBackupRequest.BackupPlanId, volumeBackupRequest.BackupTaskId
-	// get volume path
-	volumePath, err := VolumePath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	// create backup folder if not exist
-	volumeBackupFolderPath, err := VolumeBackUpPath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	if _, err := os.Stat(volumeBackupFolderPath); os.IsNotExist(err) {
-		err := os.Mkdir(volumeBackupFolderPath, 0775)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-	}
-
-	//open backup db
-	expandedDir, err := LevelDbBackupPath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer db.Close()
-
-	// generate car file using ipfs
-	// generate datacid for volume folder
-	ipfsApiAddress := config.GetUserConfig().IpfsApiAddress
-	hash, err := IpfsAddFolder(volumePath, ipfsApiAddress)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	logs.GetLogger().Info("FS3 volume backup payload cid: ", hash)
-
-	// generate car file for the volume folder
-	confCar := &clientmodel.ConfCar{
-		LotusClientApiUrl:      config.GetUserConfig().LotusClientApiUrl,
-		LotusClientAccessToken: config.GetUserConfig().LotusClientAccessToken,
-		OutputDir:              volumeBackupFolderPath,
-		InputDir:               volumePath,
-	}
-
-	volumeCarPath, err := generateCarFileWithIpfs(ipfsApiAddress, hash, volumeBackupFolderPath)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	logs.GetLogger().Info("FS3 volume backup car file generation succeed")
-
-	// lotus import car file
-	err = LotusRpcClientImportCar(volumeCarPath)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeOfflineDealsErrorResponse(w, err)
-		return
-	}
-
-	//generate car.csv
-	carCsvStructList, err := generateCarInfo(hash, volumeCarPath, confCar)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	logs.GetLogger().Info("car files created in ", confCar.OutputDir)
-
-	dataBytes, err := json.Marshal(&carCsvStructList)
-	err = db.Put([]byte(TableVolumeBackupDealsCarCsv), []byte(dataBytes), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	//upload to ipfs
-	confUpload := &clientmodel.ConfUpload{
-		StorageServerType:           libconstants.STORAGE_SERVER_TYPE_IPFS_SERVER,
-		IpfsServerDownloadUrlPrefix: config.GetUserConfig().IpfsGateway,
-		IpfsServerUploadUrl:         config.GetUserConfig().IpfsApiAddress,
-		OutputDir:                   confCar.OutputDir,
-		InputDir:                    confCar.OutputDir,
-	}
-	uploadedCarCsvStructList, err := subcommand.UploadCarFiles(confUpload)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	logs.GetLogger().Info("car files uploaded")
-
-	dataBytes, err = json.Marshal(&uploadedCarCsvStructList)
-	err = db.Put([]byte(TableVolumeBackupDealsCarCsv), []byte(dataBytes), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	backupPlanInfo, err := GetBackupPlanInfo(db, backupPlanId)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	// create public task on swan
-	startEpochIntervalHours := 96
-	startEpoch := libutils.GetCurrentEpoch() + (startEpochIntervalHours+1)*libconstants.EPOCH_PER_HOUR
-	maxPrice, err := decimal.NewFromString(backupPlanInfo.Price)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	duration, err := strconv.Atoi(backupPlanInfo.Duration)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	confTask := &clientmodel.ConfTask{
-		SwanApiUrl:                 config.GetUserConfig().SwanAddress,
-		SwanToken:                  config.GetUserConfig().SwanToken,
-		PublicDeal:                 true,
-		BidMode:                    libconstants.TASK_BID_MODE_AUTO,
-		VerifiedDeal:               backupPlanInfo.VerifiedDeal,
-		OfflineMode:                false,
-		FastRetrieval:              backupPlanInfo.FastRetrieval,
-		MaxPrice:                   maxPrice,
-		StorageServerType:          libconstants.STORAGE_SERVER_TYPE_IPFS_SERVER,
-		WebServerDownloadUrlPrefix: confUpload.IpfsServerDownloadUrlPrefix,
-		ExpireDays:                 4,
-		Duration:                   duration,
-		OutputDir:                  confCar.OutputDir,
-		InputDir:                   confCar.OutputDir,
-		TaskName:                   backupPlanName,
-		StartEpochIntervalHours:    startEpochIntervalHours,
-		StartEpoch:                 startEpoch,
-		SourceId:                   FS3SourceId,
-	}
-
-	_, metadataCsvStructList, taskCsvStructList, err := subcommand.CreateTask(confTask, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	dataBytes, err = json.Marshal(&metadataCsvStructList)
-	err = db.Put([]byte(TableVolumeBackupDealsMetadataCsv), []byte(dataBytes), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	//save backup task to db
-	newVolumeBackupPlanTask, err := SaveBackupTaskToDb(taskCsvStructList, backupPlanId, backupTaskId, db)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	logs.GetLogger().Info("task created")
-
-	createBackupTaskResponse := CreateBackupTaskResponse{
-		Data:    newVolumeBackupPlanTask,
-		Status:  SuccessResponseStatus,
-		Message: SuccessResponseStatus,
-	}
-	dataBytes, err = json.Marshal(createBackupTaskResponse)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeOfflineDealsErrorResponse(w, err)
-		return
-	}
-	w.Write(dataBytes)
-	return
-}
-
 func authorization(w http.ResponseWriter, r *http.Request, ctx context.Context, bucket string, object string) string {
 	claims, owner, authErr := webRequestAuthenticate(r)
 	defer logger.AuditLog(ctx, w, r, claims.Map())
@@ -6260,7 +6029,7 @@ func generateCarFileWithIpfs(ipfsApiAddress string, hash string, volumeBackupPat
 	if _, err := os.Stat(volumeCarPath); errors.Is(err, os.ErrNotExist) {
 		logs.GetLogger().Error("volume backup car file generation failed")
 	}
-	logs.GetLogger().Info("volume backup car file generation success. Car file path: %s", volumeCarPath)
+	logs.GetLogger().Info("volume backup car file generation success. Car file path: ", volumeCarPath)
 	return volumeCarPath, nil
 }
 
@@ -6396,48 +6165,49 @@ func generateCarInfo(hash string, volumeCarPath string, confCar *clientmodel.Con
 	return carFiles, nil
 }
 
-func SaveBackupTaskToDb(task []*subcommand.Deal, backupPlanId int, backupTaskId int, db *leveldb.DB) (VolumeBackupPlanTask, error) {
-	tasks := []subcommand.Deal{}
-	for _, v := range task {
-		tasks = append(tasks, *v)
-	}
-
-	dbVolumeBackupTasks := TableVolumeBackupTask
-	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-	volumeBackupTasks, _ := db.Get([]byte(dbVolumeBackupTasks), nil)
-	data := VolumeBackupTasks{}
-	err := json.Unmarshal(volumeBackupTasks, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return VolumeBackupPlanTask{}, err
-	}
-	planIndex, taskIndex := -1, -1
-	for i, v := range data.VolumeBackupPlans {
-		if v.BackupPlanId == backupPlanId {
-			planIndex = i
-			for j, values := range v.BackupPlanTasks {
-				if values.BackupTaskId == backupTaskId {
-					taskIndex = j
-					data.VolumeBackupPlans[i].BackupPlanTasks[j].Data.DealInfo = tasks
-					data.VolumeBackupPlans[i].BackupPlanTasks[j].Status = StatusBackupTaskRunning
-					data.VolumeBackupPlans[i].BackupPlanTasks[j].UpdatedOn = timestamp
-					break
-				}
-			}
-			break
-		}
-	}
-	dataBytes, err := json.Marshal(data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return VolumeBackupPlanTask{}, err
-	}
-	err = db.Put([]byte(dbVolumeBackupTasks), []byte(dataBytes), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return VolumeBackupPlanTask{}, err
-	}
-	return data.VolumeBackupPlans[planIndex].BackupPlanTasks[taskIndex], err
+func SaveBackupTaskToDb(task []*subcommand.Deal, backupPlanId int, backupTaskId int, db *leveldb.DB) ([]VolumeBackupPlanTask, error) {
+	//tasks := []subcommand.Deal{}
+	//for _, v := range task {
+	//	tasks = append(tasks, *v)
+	//}
+	//
+	//dbVolumeBackupTasks := TableVolumeBackupTask
+	//timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
+	//volumeBackupTasks, _ := db.Get([]byte(dbVolumeBackupTasks), nil)
+	//data := VolumeBackupTasks{}
+	//err := json.Unmarshal(volumeBackupTasks, &data)
+	//if err != nil {
+	//	logs.GetLogger().Error(err)
+	//	return VolumeBackupPlanTask{}, err
+	//}
+	//planIndex, taskIndex := -1, -1
+	//for i, v := range data.VolumeBackupPlans {
+	//	if v.BackupPlanId == backupPlanId {
+	//		planIndex = i
+	//		for j, values := range v.BackupPlanTasks {
+	//			if values.BackupTaskId == backupTaskId {
+	//				taskIndex = j
+	//				data.VolumeBackupPlans[i].BackupPlanTasks[j].Data.DealInfo = tasks
+	//				data.VolumeBackupPlans[i].BackupPlanTasks[j].Status = StatusBackupTaskRunning
+	//				data.VolumeBackupPlans[i].BackupPlanTasks[j].UpdatedOn = timestamp
+	//				break
+	//			}
+	//		}
+	//		break
+	//	}
+	//}
+	//dataBytes, err := json.Marshal(data)
+	//if err != nil {
+	//	logs.GetLogger().Error(err)
+	//	return VolumeBackupPlanTask{}, err
+	//}
+	//err = db.Put([]byte(dbVolumeBackupTasks), []byte(dataBytes), nil)
+	//if err != nil {
+	//	logs.GetLogger().Error(err)
+	//	return VolumeBackupPlanTask{}, err
+	//}
+	//return data.VolumeBackupPlans[planIndex].BackupPlanTasks[taskIndex], err
+	return nil, nil
 }
 
 type BackupPlanTaskInfo struct {
@@ -6451,19 +6221,6 @@ type VolumeBackupPlanTask struct {
 	UpdatedOn    string             `json:"updatedOn"`
 	BackupTaskId int                `json:"backupTaskId"`
 	Status       string             `json:"status"`
-}
-
-type VolumeBackupPlan struct {
-	BackupPlanName        string                 `json:"backupPlanName"`
-	BackupPlanId          int                    `json:"backupPlanId"`
-	BackupPlanTasks       []VolumeBackupPlanTask `json:"backupPlanTasks"`
-	BackupPlanTasksCounts int                    `json:"backupPlanTasksCounts"`
-}
-
-type VolumeBackupRequest struct {
-	BackupTaskId   int    `json:"backupTaskId"`
-	BackupPlanId   int    `json:"backupPlanId"`
-	BackupPlanName string `json:"backupPlanName"`
 }
 
 type AddVolumeBackupPlanRequest struct {
@@ -6482,60 +6239,29 @@ type UpdateVolumeBackupPlanRequest struct {
 }
 
 type AddVolumeBackupPlanResponse struct {
-	Data    VolumeBackupJobPlan `json:"data"`
-	Status  string              `json:"status"`
-	Message string              `json:"message"`
+	Data    VolumeBackupPlan `json:"data"`
+	Status  string           `json:"status"`
+	Message string           `json:"message"`
 }
 
-type PsqlAddVolumeBackupPlanResponse struct {
-	Data    PsqlVolumeBackupPlan `json:"data"`
-	Status  string               `json:"status"`
-	Message string               `json:"message"`
-}
-
-type AddVolumeBackupRequest struct {
+type AddSnapshotBackupJobRequest struct {
 	BackupPlanId int `json:"backupPlanId"`
 }
 
-type AddVolumeBackupResponse struct {
-	Data    VolumeBackupPlanTask `json:"data"`
-	Status  string               `json:"status"`
-	Message string               `json:"message"`
+type AddSnapshotBackupJobResponse struct {
+	Data    VolumeBackupJob `json:"data"`
+	Status  string          `json:"status"`
+	Message string          `json:"message"`
 }
 
-type PsqlAddVolumeBackupResponse struct {
-	Data    PsqlVolumeBackupJob `json:"data"`
-	Status  string              `json:"status"`
-	Message string              `json:"message"`
-}
-
-type AddVolumeRebuildRequest struct {
-	BackupTaskId int `json:"backupTaskId"`
-	BackupPlanId int `json:"backupPlanId"`
-}
-
-type PsqlAddVolumeRebuildRequest struct {
+type AddSnapshotRebuildRequest struct {
 	BackupTaskId int `json:"backupTaskId"`
 }
 
 type AddVolumeRebuildResponse struct {
-	Data    VolumeRebuildTask `json:"data"`
-	Status  string            `json:"status"`
-	Message string            `json:"message"`
-}
-
-type PsqlAddVolumeRebuildResponse struct {
-	Data    PsqlVolumeRebuildJob `json:"data"`
-	Status  string               `json:"status"`
-	Message string               `json:"message"`
-}
-
-type PsqlVolumeRebuildJobs struct {
-	VolumeRebuildTasks                []VolumeRebuildTask `json:"volumeRebuildTasks"`
-	VolumeRebuildTasksCounts          int                 `json:"volumeRebuildTasksCounts"`
-	CompletedVolumeRebuildTasksCounts int                 `json:"completedVolumeRebuildTasksCounts"`
-	InProcessVolumeRebuildTasksCounts int                 `json:"inProcessVolumeRebuildTasksCounts"`
-	FailedVolumeRebuildTasksCounts    int                 `json:"failedVolumeRebuildTasksCounts"`
+	Data    VolumeRebuildJob `json:"data"`
+	Status  string           `json:"status"`
+	Message string           `json:"message"`
 }
 
 type VolumeRebuildJobs struct {
@@ -6546,24 +6272,18 @@ type VolumeRebuildJobs struct {
 	FailedVolumeRebuildTasksCounts    int                 `json:"failedVolumeRebuildTasksCounts"`
 }
 
-type PsqlVolumeRebuildJobsResponse struct {
-	Data    PsqlVolumeRebuildJobResp `json:"data"`
-	Status  string                   `json:"status"`
-	Message string                   `json:"message"`
-}
-
-type PsqlVolumeRebuildJobResp struct {
-	VolumeRebuildJobs                 []PsqlVolumeRebuildJobFull `json:"volumeRebuildJobs"`
-	TotalVolumeRebuildTasksCounts     int                        `json:"totalVolumeRebuildTasksCounts"`
-	CompletedVolumeRebuildTasksCounts int                        `json:"completedVolumeRebuildTasksCounts"`
-	InProcessVolumeRebuildTasksCounts int                        `json:"inProcessVolumeRebuildTasksCounts"`
-	FailedVolumeRebuildTasksCounts    int                        `json:"failedVolumeRebuildTasksCounts"`
-}
-
 type VolumeRebuildJobsResponse struct {
-	Data    VolumeRebuildJobs `json:"data"`
-	Status  string            `json:"status"`
-	Message string            `json:"message"`
+	Data    VolumeRebuildJobResp `json:"data"`
+	Status  string               `json:"status"`
+	Message string               `json:"message"`
+}
+
+type VolumeRebuildJobResp struct {
+	VolumeRebuildJobs                 []VolumeRebuildJob `json:"volumeRebuildJobs"`
+	TotalVolumeRebuildTasksCounts     int                `json:"totalVolumeRebuildTasksCounts"`
+	CompletedVolumeRebuildTasksCounts int                `json:"completedVolumeRebuildTasksCounts"`
+	InProcessVolumeRebuildTasksCounts int                `json:"inProcessVolumeRebuildTasksCounts"`
+	FailedVolumeRebuildTasksCounts    int                `json:"failedVolumeRebuildTasksCounts"`
 }
 
 type VolumeBackupPlansResponse struct {
@@ -6573,14 +6293,14 @@ type VolumeBackupPlansResponse struct {
 }
 
 type PsqlVolumeBackupPlansResponse struct {
-	Data    PsqlVolumeBackupPlanResponse `json:"data"`
-	Status  string                       `json:"status"`
-	Message string                       `json:"message"`
+	Data    VolumeBackupPlanResponse `json:"data"`
+	Status  string                   `json:"status"`
+	Message string                   `json:"message"`
 }
 
-type PsqlVolumeBackupPlanResponse struct {
-	BackupPlans                  []PsqlVolumeBackupPlan `json:"backupPlans"`
-	TotalVolumeBackupPlansCounts int                    `json:"TotalVolumeBackupPlan"`
+type VolumeBackupPlanResponse struct {
+	BackupPlans                  []VolumeBackupPlan `json:"backupPlans"`
+	TotalVolumeBackupPlansCounts int                `json:"TotalVolumeBackupPlan"`
 }
 
 type VolumeRebuildTask struct {
@@ -6594,35 +6314,13 @@ type VolumeRebuildTask struct {
 	Status        string `json:"status"`
 }
 
-type VolumeRebuildRequest struct {
-	VolumeRebuildTaskId int    `json:"volumeRebuildTaskId"`
-	MinerId             string `json:"minerId"`
-	PayloadCid          string `json:"payloadCid"`
-	DealCid             string `json:"dealCid"`
-}
-
 type VolumeRebuildResponse struct {
 	Data    VolumeRebuildJobResponse `json:"data"`
 	Status  string                   `json:"status"`
 	Message string                   `json:"message"`
 }
 
-type PsqlVolumeRebuildResponse struct {
-	Data    PsqlVolumeRebuildJobResponse `json:"data"`
-	Status  string                       `json:"status"`
-	Message string                       `json:"message"`
-}
-
 type VolumeRebuildJobResponse struct {
-	VolumeRebuildAddress string `json:"volume_rebuild_address"`
-	VolumeRebuildName    string `json:"volume_rebuild_name"`
-	MinerId              string `json:"miner_id"`
-	DealCid              string `json:"deal_cid"`
-	PayloadCid           string `json:"payload_cid"`
-	TimeStamp            string `json:"timeStamp"`
-}
-
-type PsqlVolumeRebuildJobResponse struct {
 	RebuildJobId         int    `json:"rebuildJobId"`
 	VolumeRebuildAddress string `json:"volume_rebuild_address"`
 	VolumeRebuildName    string `json:"volume_rebuild_name"`
@@ -6632,8 +6330,8 @@ type PsqlVolumeRebuildJobResponse struct {
 	TimeStamp            string `json:"timeStamp"`
 }
 
-func (web *webAPIHandlers) PsqlRetrieveOfflineDealsVolume(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebPsqlRetrieveOfflineDealsVolume")
+func (web *webAPIHandlers) RetrieveOfflineDealsVolume(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "WebRetrieveOfflineDealsVolume")
 	// check authorization
 	auth := authorization(w, r, ctx, "", "")
 	if auth != "" {
@@ -6642,7 +6340,7 @@ func (web *webAPIHandlers) PsqlRetrieveOfflineDealsVolume(w http.ResponseWriter,
 
 	//get request body
 	decoder := json.NewDecoder(r.Body)
-	var volumeBackupRequest PsqlVolumeBackupRequest
+	var volumeBackupRequest VolumeBackupRequest
 	err := decoder.Decode(&volumeBackupRequest)
 	if err != nil {
 		logs.GetLogger().Error(err)
@@ -6658,7 +6356,7 @@ func (web *webAPIHandlers) PsqlRetrieveOfflineDealsVolume(w http.ResponseWriter,
 	offset = offset * limit
 
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -6672,28 +6370,61 @@ func (web *webAPIHandlers) PsqlRetrieveOfflineDealsVolume(w http.ResponseWriter,
 	}
 	defer sqlDB.Close()
 
-	var resp []PsqlVolumeBackupJob
-	db.Order("id").Limit(limit).Offset(offset).Find(&resp)
+	var resp []VolumeBackupJob
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).Order("id").Limit(limit).Offset(offset).Find(&resp).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
 
-	var count []PsqlVolumeBackupJob
+	var count []VolumeBackupJob
 	var inProcessVolumeBackupTasksCounts, completedVolumeBackupTasksCounts, failedVolumeBackupTasksCounts, totalVolumeBackupTasksCounts int64
-	db.Where("status=?", StatusBackupTaskCreated).Or("status=?", StatusBackupTaskRunning).Find(&count).Count(&inProcessVolumeBackupTasksCounts)
-	db.Where("status=?", StatusBackupTaskCompleted).Find(&count).Count(&completedVolumeBackupTasksCounts)
-	db.Where("status=?", StatusBackupTaskFailed).Find(&count).Count(&failedVolumeBackupTasksCounts)
-	if err := db.Find(&count).Count(&totalVolumeBackupTasksCounts).Error; err != nil {
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusBackupTaskCreated).Or("status=?", StatusBackupTaskRunning).Find(&count).Count(&inProcessVolumeBackupTasksCounts).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusBackupTaskCompleted).Find(&count).Count(&completedVolumeBackupTasksCounts).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusBackupTaskFailed).Find(&count).Count(&failedVolumeBackupTasksCounts).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
+
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).Find(&count).Count(&totalVolumeBackupTasksCounts).Error; err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
 		return
 	}
 
-	psqlRetrieveVolume := PsqlRetrieveVolume{
+	psqlRetrieveVolume := RetrieveVolume{
 		VolumeBackupJobs:                 resp,
 		CompletedVolumeBackupTasksCounts: int(completedVolumeBackupTasksCounts),
 		InProcessVolumeBackupTasksCounts: int(inProcessVolumeBackupTasksCounts),
 		FailedVolumeBackupTasksCounts:    int(failedVolumeBackupTasksCounts),
 		TotalVolumeBackupTasksCounts:     int(totalVolumeBackupTasksCounts),
 	}
-	retrieveVolumeResponse := PsqlRetrieveVolumeResponse{
+	retrieveVolumeResponse := RetrieveVolumeResponse{
 		Data:    psqlRetrieveVolume,
 		Status:  SuccessResponseStatus,
 		Message: SuccessResponseStatus}
@@ -6707,72 +6438,8 @@ func (web *webAPIHandlers) PsqlRetrieveOfflineDealsVolume(w http.ResponseWriter,
 	return
 }
 
-func (web *webAPIHandlers) RetrieveOfflineDealsVolume(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebRetrieveOfflineDealsVolume")
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	expandedDir, err := LevelDbBackupPath()
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		writeWebErrorResponse(w, err)
-		logs.GetLogger().Error(err)
-		return
-	}
-	defer db.Close()
-	backupTasksKey := TableVolumeBackupTask
-
-	//check if key exists
-	has, err := db.Has([]byte(backupTasksKey), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	if has == false {
-		retrieveVolumeResponse := RetrieveVolumeResponse{
-			Data:    VolumeBackupTasks{},
-			Status:  SuccessResponseStatus,
-			Message: KeyNotInLevelDb,
-		}
-		dataBytes, err := json.Marshal(retrieveVolumeResponse)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		w.Write(dataBytes)
-		return
-	}
-
-	backupTasks, err := db.Get([]byte(backupTasksKey), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	data := VolumeBackupTasks{}
-	err = json.Unmarshal(backupTasks, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	retrieveVolumeResponse := RetrieveVolumeResponse{Data: data, Status: SuccessResponseStatus, Message: SuccessResponseStatus}
-	dataBytes, err := json.Marshal(retrieveVolumeResponse)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	w.Write(dataBytes)
-	return
-}
-
-func (web *webAPIHandlers) PsqlRebuildVolume(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebPsqlRebuildVolume")
+func (web *webAPIHandlers) SnapshotRetrieveOfflineDealsVolume(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "WebSnapshotRetrieveOfflineDealsVolume")
 	// check authorization
 	auth := authorization(w, r, ctx, "", "")
 	if auth != "" {
@@ -6781,48 +6448,23 @@ func (web *webAPIHandlers) PsqlRebuildVolume(w http.ResponseWriter, r *http.Requ
 
 	//get request body
 	decoder := json.NewDecoder(r.Body)
-	var volumeRebuildRequest VolumeRebuildRequest
-	err := decoder.Decode(&volumeRebuildRequest)
+	var volumeBackupRequest VolumeBackupRequest
+	err := decoder.Decode(&volumeBackupRequest)
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
 		return
 	}
 
-	// get volume path
-	volumePath, err := VolumePath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
+	offset := volumeBackupRequest.Offset
+	limit := volumeBackupRequest.Limit
+	if limit == 0 {
+		limit = 10
 	}
+	offset = offset * limit
 
-	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-
-	//rename previous version volume
-	if _, err := os.Stat(volumePath); !os.IsNotExist(err) {
-		dir, file := filepath.Split(volumePath)
-		fileBase, fileExt := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), filepath.Ext(file)
-		_, err = exec.Command("mv", volumePath, dir+fileBase+"_"+timestamp+fileExt).Output()
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeOfflineDealsErrorResponse(w, err)
-			return
-		}
-	}
-
-	//retrieve deal
-	err = LotusRpcClientRetrieve(volumeRebuildRequest.MinerId, volumeRebuildRequest.PayloadCid, volumePath)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeOfflineDealsErrorResponse(w, err)
-		return
-	}
-
-	//update db
-	rebuildTimestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -6836,353 +6478,30 @@ func (web *webAPIHandlers) PsqlRebuildVolume(w http.ResponseWriter, r *http.Requ
 	}
 	defer sqlDB.Close()
 
-	var rebuildJob PsqlVolumeRebuildJob
-	if err := db.First(&rebuildJob, volumeRebuildRequest.VolumeRebuildTaskId).Error; err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	rebuildJob.UpdatedOn = rebuildTimestamp
-	rebuildJob.Status = StatusRebuildTaskCompleted
-	if err := db.Save(&rebuildJob).Error; err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
+	var resp []VolumeBackupJob
+	db.Order("id").Limit(limit).Offset(offset).Find(&resp)
 
-	//send response
-	volumeRebuildJobResponse := PsqlVolumeRebuildJobResponse{
-		RebuildJobId:         volumeRebuildRequest.VolumeRebuildTaskId,
-		VolumeRebuildAddress: volumePath,
-		VolumeRebuildName:    filepath.Base(volumePath),
-		MinerId:              volumeRebuildRequest.MinerId,
-		DealCid:              volumeRebuildRequest.DealCid,
-		PayloadCid:           volumeRebuildRequest.PayloadCid,
-		TimeStamp:            rebuildTimestamp,
-	}
-	volumeRebuildResponse := PsqlVolumeRebuildResponse{
-		Data:    volumeRebuildJobResponse,
-		Status:  SuccessResponseStatus,
-		Message: SuccessResponseStatus,
-	}
-	bodyByte, err := json.Marshal(volumeRebuildResponse)
-	if err != nil {
-		writeWebErrorResponse(w, err)
-		logs.GetLogger().Error(err)
-		return
-	}
-	w.Write(bodyByte)
-
-	return
-}
-
-func (web *webAPIHandlers) RebuildVolume(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebRebuildVolume")
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	//get request body
-	decoder := json.NewDecoder(r.Body)
-	var volumeRebuildRequest VolumeRebuildRequest
-	err := decoder.Decode(&volumeRebuildRequest)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	// get volume path
-	volumePath, err := VolumePath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-
-	//rename previous version volume
-	if _, err := os.Stat(volumePath); !os.IsNotExist(err) {
-		dir, file := filepath.Split(volumePath)
-		fileBase, fileExt := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), filepath.Ext(file)
-		_, err = exec.Command("mv", volumePath, dir+fileBase+"_"+timestamp+fileExt).Output()
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeOfflineDealsErrorResponse(w, err)
-			return
-		}
-	}
-
-	//retrieve deal
-	err = LotusRpcClientRetrieve(volumeRebuildRequest.MinerId, volumeRebuildRequest.PayloadCid, volumePath)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeOfflineDealsErrorResponse(w, err)
-		return
-	}
-
-	//update db
-	//open backup db
-	expandedDir, err := LevelDbBackupPath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer db.Close()
-
-	rebuildTimestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-
-	backupTasksKey := TableVolumeRebuildTask
-	backupTasks, err := db.Get([]byte(backupTasksKey), nil)
-	data := VolumeRebuildJobs{}
-	err = json.Unmarshal(backupTasks, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	for i, v := range data.VolumeRebuildTasks {
-		if v.RebuildTaskID == volumeRebuildRequest.VolumeRebuildTaskId {
-			data.VolumeRebuildTasks[i].UpdatedOn = rebuildTimestamp
-			data.VolumeRebuildTasks[i].Status = StatusRebuildTaskCompleted
-			data.InProcessVolumeRebuildTasksCounts = data.InProcessVolumeRebuildTasksCounts - 1
-			data.CompletedVolumeRebuildTasksCounts = data.CompletedVolumeRebuildTasksCounts + 1
-		}
-	}
-	dataBytes, err := json.Marshal(data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	err = db.Put([]byte(TableVolumeRebuildTask), []byte(dataBytes), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	//send response
-	volumeRebuildJobResponse := VolumeRebuildJobResponse{
-		VolumeRebuildAddress: volumePath,
-		VolumeRebuildName:    filepath.Base(volumePath),
-		MinerId:              volumeRebuildRequest.MinerId,
-		DealCid:              volumeRebuildRequest.DealCid,
-		PayloadCid:           volumeRebuildRequest.PayloadCid,
-		TimeStamp:            rebuildTimestamp,
-	}
-	volumeRebuildResponse := VolumeRebuildResponse{
-		Data:    volumeRebuildJobResponse,
-		Status:  SuccessResponseStatus,
-		Message: SuccessResponseStatus,
-	}
-	bodyByte, err := json.Marshal(volumeRebuildResponse)
-	if err != nil {
-		writeWebErrorResponse(w, err)
-		logs.GetLogger().Error(err)
-		return
-	}
-	w.Write(bodyByte)
-	return
-}
-
-func (web *webAPIHandlers) BackupVolumeAddPlan(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebRebuildAddPlan")
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	//get request body
-	decoder := json.NewDecoder(r.Body)
-	var addVolumeBackupPlanRequest AddVolumeBackupPlanRequest
-	err := decoder.Decode(&addVolumeBackupPlanRequest)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	//open backup db
-	expandedDir, err := LevelDbBackupPath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer db.Close()
-
-	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-
-	backupPlansKey := TableVolumeBackupPlan
-	backupPlans, err := db.Get([]byte(backupPlansKey), nil)
-
-	if err == nil {
-		data := VolumeBackupJobPlans{}
-		err = json.Unmarshal(backupPlans, &data)
-		if err != nil {
+	var count []VolumeBackupJob
+	var inProcessVolumeBackupTasksCounts, completedVolumeBackupTasksCounts, failedVolumeBackupTasksCounts, totalVolumeBackupTasksCounts int64
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusBackupTaskCreated).Or("status=?", StatusBackupTaskRunning).Find(&count).Count(&inProcessVolumeBackupTasksCounts).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
 			logs.GetLogger().Error(err)
 			writeWebErrorResponse(w, err)
 			return
 		}
-		newVolumeBackupJobPlan := VolumeBackupJobPlan{
-			BackupPlanId:   data.VolumeBackupJobPlansCounts + 1,
-			BackupPlanName: addVolumeBackupPlanRequest.BackupPlanName,
-			BackupInterval: addVolumeBackupPlanRequest.BackupInterval,
-			MinerRegion:    addVolumeBackupPlanRequest.MinerRegion,
-			Price:          addVolumeBackupPlanRequest.Price,
-			Duration:       addVolumeBackupPlanRequest.Duration,
-			VerifiedDeal:   addVolumeBackupPlanRequest.VerifiedDeal,
-			FastRetrieval:  addVolumeBackupPlanRequest.FastRetrieval,
-			Status:         StatusBackupPlanEnabled,
-			CreatedOn:      timestamp,
-			UpdatedOn:      timestamp,
-		}
-		data.VolumeBackupJobPlans = append(data.VolumeBackupJobPlans, newVolumeBackupJobPlan)
-		data.VolumeBackupJobPlansCounts = data.VolumeBackupJobPlansCounts + 1
-		dataBytes, err := json.Marshal(data)
-		if err != nil {
+	}
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusBackupTaskCompleted).Find(&count).Count(&completedVolumeBackupTasksCounts).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
 			logs.GetLogger().Error(err)
 			writeWebErrorResponse(w, err)
 			return
 		}
-		err = db.Put([]byte(TableVolumeBackupPlan), []byte(dataBytes), nil)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		addVolumeBackupPlanResponse := AddVolumeBackupPlanResponse{
-			Data:    newVolumeBackupJobPlan,
-			Status:  SuccessResponseStatus,
-			Message: SuccessResponseStatus,
-		}
-		dataBytes, err = json.Marshal(addVolumeBackupPlanResponse)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeOfflineDealsErrorResponse(w, err)
-			return
-		}
-		w.Write(dataBytes)
-		return
-	} else {
-		newVolumeBackupJobPlan := VolumeBackupJobPlan{
-			BackupPlanId:   1,
-			BackupPlanName: addVolumeBackupPlanRequest.BackupPlanName,
-			BackupInterval: addVolumeBackupPlanRequest.BackupInterval,
-			MinerRegion:    addVolumeBackupPlanRequest.MinerRegion,
-			Price:          addVolumeBackupPlanRequest.Price,
-			Duration:       addVolumeBackupPlanRequest.Duration,
-			VerifiedDeal:   addVolumeBackupPlanRequest.VerifiedDeal,
-			FastRetrieval:  addVolumeBackupPlanRequest.FastRetrieval,
-			Status:         StatusBackupPlanEnabled,
-			CreatedOn:      timestamp,
-			UpdatedOn:      timestamp,
-		}
-		newVolumeBackupJobPlans := []VolumeBackupJobPlan{}
-		newVolumeBackupJobPlans = append(newVolumeBackupJobPlans, newVolumeBackupJobPlan)
-		volumeBackupJobPlans := VolumeBackupJobPlans{
-			VolumeBackupJobPlans:       newVolumeBackupJobPlans,
-			VolumeBackupJobPlansCounts: 1,
-		}
-		dataBytes, err := json.Marshal(volumeBackupJobPlans)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		err = db.Put([]byte(TableVolumeBackupPlan), []byte(dataBytes), nil)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		addVolumeBackupPlanResponse := AddVolumeBackupPlanResponse{
-			Data:    newVolumeBackupJobPlan,
-			Status:  SuccessResponseStatus,
-			Message: SuccessResponseStatus,
-		}
-		dataBytes, err = json.Marshal(addVolumeBackupPlanResponse)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeOfflineDealsErrorResponse(w, err)
-			return
-		}
-		w.Write(dataBytes)
-		return
 	}
-}
-
-func (web *webAPIHandlers) PsqlBackupVolumeAddPlan(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebPsqlRebuildAddPlan")
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	//get request body
-	decoder := json.NewDecoder(r.Body)
-	var addVolumeBackupPlanRequest AddVolumeBackupPlanRequest
-	err := decoder.Decode(&addVolumeBackupPlanRequest)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	//open backup db
-	db, err := GetPsqlDb()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	//close db
-	sqlDB, err := db.DB()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer sqlDB.Close()
-
-	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-
-	newbackupPlan := PsqlVolumeBackupPlan{
-		Name:          addVolumeBackupPlanRequest.BackupPlanName,
-		Interval:      addVolumeBackupPlanRequest.BackupInterval,
-		MinerRegion:   addVolumeBackupPlanRequest.MinerRegion,
-		Price:         addVolumeBackupPlanRequest.Price,
-		Duration:      addVolumeBackupPlanRequest.Duration,
-		VerifiedDeal:  addVolumeBackupPlanRequest.VerifiedDeal,
-		FastRetrieval: addVolumeBackupPlanRequest.FastRetrieval,
-		Status:        StatusBackupPlanEnabled,
-		CreatedOn:     timestamp,
-		UpdatedOn:     timestamp,
-	}
-
-	result := db.Create(&newbackupPlan)
-	if result.Error != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	var resp PsqlVolumeBackupPlan
-	if err := db.Last(&resp).Error; err != nil {
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusBackupTaskFailed).Find(&count).Count(&failedVolumeBackupTasksCounts).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
 		} else {
@@ -7192,15 +6511,129 @@ func (web *webAPIHandlers) PsqlBackupVolumeAddPlan(w http.ResponseWriter, r *htt
 		}
 	}
 
-	addVolumeBackupPlanResponse := PsqlAddVolumeBackupPlanResponse{
-		Data:    resp,
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).Find(&count).Count(&totalVolumeBackupTasksCounts).Error; err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+
+	psqlRetrieveVolume := RetrieveVolume{
+		VolumeBackupJobs:                 resp,
+		CompletedVolumeBackupTasksCounts: int(completedVolumeBackupTasksCounts),
+		InProcessVolumeBackupTasksCounts: int(inProcessVolumeBackupTasksCounts),
+		FailedVolumeBackupTasksCounts:    int(failedVolumeBackupTasksCounts),
+		TotalVolumeBackupTasksCounts:     int(totalVolumeBackupTasksCounts),
+	}
+	retrieveVolumeResponse := RetrieveVolumeResponse{
+		Data:    psqlRetrieveVolume,
+		Status:  SuccessResponseStatus,
+		Message: SuccessResponseStatus}
+	dataBytes, err := json.Marshal(retrieveVolumeResponse)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+	}
+	w.Write(dataBytes)
+
+	return
+}
+
+func (web *webAPIHandlers) BackupVolumeAddPlan(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "WebBackupVolumeAddPlan")
+	// check authorization
+	auth := authorization(w, r, ctx, "", "")
+	if auth != "" {
+		return
+	}
+
+	//get request body
+	decoder := json.NewDecoder(r.Body)
+	var addVolumeBackupPlanRequest AddVolumeBackupPlanRequest
+	err := decoder.Decode(&addVolumeBackupPlanRequest)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+
+	//open backup db
+	db, err := GetFS3Db()
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+	//close db
+	sqlDB, err := db.DB()
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+	}
+	defer sqlDB.Close()
+
+	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
+
+	//add user if not exit
+	userId := config.GetUserConfig().UserId
+	var user User
+	if err := db.Where("user_id=?", userId).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("User not found in database. Start adding new user")
+			newUser := User{
+				UserId: userId,
+			}
+			result := db.Create(&newUser)
+			if result.Error != nil {
+				logs.GetLogger().Error(err)
+				writeWebErrorResponse(w, err)
+				return
+			}
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
+
+	var count []VolumeBackupPlan
+	var userBackupPlanCount int64
+	if err := db.Where("user_id=?", userId).Find(&count).Count(&userBackupPlanCount).Error; err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+
+	newbackupPlan := VolumeBackupPlan{
+		Name:             addVolumeBackupPlanRequest.BackupPlanName,
+		UserId:           userId,
+		UserBackupPlanId: int(userBackupPlanCount) + 1,
+		Interval:         addVolumeBackupPlanRequest.BackupInterval,
+		MinerRegion:      addVolumeBackupPlanRequest.MinerRegion,
+		Price:            addVolumeBackupPlanRequest.Price,
+		Duration:         addVolumeBackupPlanRequest.Duration,
+		VerifiedDeal:     addVolumeBackupPlanRequest.VerifiedDeal,
+		FastRetrieval:    addVolumeBackupPlanRequest.FastRetrieval,
+		Status:           StatusBackupPlanEnabled,
+		CreatedOn:        timestamp,
+		UpdatedOn:        timestamp,
+	}
+
+	result := db.Create(&newbackupPlan)
+	if result.Error != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+
+	addVolumeBackupPlanResponse := AddVolumeBackupPlanResponse{
+		Data:    newbackupPlan,
 		Status:  SuccessResponseStatus,
 		Message: SuccessResponseStatus,
 	}
 	dataBytes, err := json.Marshal(addVolumeBackupPlanResponse)
 	if err != nil {
 		logs.GetLogger().Error(err)
-		writeOfflineDealsErrorResponse(w, err)
+		writeWebErrorResponse(w, err)
 		return
 	}
 	w.Write(dataBytes)
@@ -7208,7 +6641,7 @@ func (web *webAPIHandlers) PsqlBackupVolumeAddPlan(w http.ResponseWriter, r *htt
 }
 
 func (web *webAPIHandlers) BackupVolumeUpdatePlan(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebBackupUpdatePlan")
+	ctx := newContext(r, w, "WebBackupVolumeUpdatePlan")
 	// check authorization
 	auth := authorization(w, r, ctx, "", "")
 	if auth != "" {
@@ -7226,87 +6659,7 @@ func (web *webAPIHandlers) BackupVolumeUpdatePlan(w http.ResponseWriter, r *http
 	}
 
 	//open backup db
-	expandedDir, err := LevelDbBackupPath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer db.Close()
-
-	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-
-	backupPlansKey := TableVolumeBackupPlan
-	backupPlans, err := db.Get([]byte(backupPlansKey), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	data := VolumeBackupJobPlans{}
-	err = json.Unmarshal(backupPlans, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	for i, v := range data.VolumeBackupJobPlans {
-		if v.BackupPlanId == updateVolumeBackupPlanRequest.BackupPlanId {
-			data.VolumeBackupJobPlans[i].Status = updateVolumeBackupPlanRequest.Status
-			data.VolumeBackupJobPlans[i].UpdatedOn = timestamp
-			dataBytes, err := json.Marshal(data)
-			if err != nil {
-				logs.GetLogger().Error(err)
-				writeWebErrorResponse(w, err)
-				return
-			}
-			err = db.Put([]byte(TableVolumeBackupPlan), []byte(dataBytes), nil)
-			if err != nil {
-				logs.GetLogger().Error(err)
-				writeWebErrorResponse(w, err)
-				return
-			}
-			updateVolumeBackupPlanResponse := AddVolumeBackupPlanResponse{
-				Data:    data.VolumeBackupJobPlans[i],
-				Status:  SuccessResponseStatus,
-				Message: SuccessResponseStatus,
-			}
-			dataBytes, err = json.Marshal(updateVolumeBackupPlanResponse)
-			if err != nil {
-				logs.GetLogger().Error(err)
-				writeOfflineDealsErrorResponse(w, err)
-				return
-			}
-			w.Write(dataBytes)
-			return
-		}
-	}
-}
-
-func (web *webAPIHandlers) PsqlBackupVolumeUpdatePlan(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebPsqlBackupUpdatePlan")
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	//get request body
-	decoder := json.NewDecoder(r.Body)
-	var updateVolumeBackupPlanRequest UpdateVolumeBackupPlanRequest
-	err := decoder.Decode(&updateVolumeBackupPlanRequest)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -7323,7 +6676,7 @@ func (web *webAPIHandlers) PsqlBackupVolumeUpdatePlan(w http.ResponseWriter, r *
 
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
 
-	var updatePlan PsqlVolumeBackupPlan
+	var updatePlan VolumeBackupPlan
 	if err := db.First(&updatePlan, updateVolumeBackupPlanRequest.BackupPlanId).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Error(err)
@@ -7331,11 +6684,21 @@ func (web *webAPIHandlers) PsqlBackupVolumeUpdatePlan(w http.ResponseWriter, r *
 			return
 		}
 	}
+	if updatePlan.UserId != config.GetUserConfig().UserId {
+		logs.GetLogger().Error(errors.New("No authorization to update backup plan"))
+		writeWebErrorResponse(w, err)
+		return
+	}
+
 	updatePlan.Status = updateVolumeBackupPlanRequest.Status
 	updatePlan.UpdatedOn = timestamp
-	db.Save(&updatePlan)
+	if err := db.Save(&updatePlan).Error; err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
 
-	updateVolumeBackupPlanResponse := PsqlAddVolumeBackupPlanResponse{
+	updateVolumeBackupPlanResponse := AddVolumeBackupPlanResponse{
 		Data:    updatePlan,
 		Status:  SuccessResponseStatus,
 		Message: SuccessResponseStatus,
@@ -7350,8 +6713,8 @@ func (web *webAPIHandlers) PsqlBackupVolumeUpdatePlan(w http.ResponseWriter, r *
 	return
 }
 
-func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebPsqlBackupAddJob")
+func (web *webAPIHandlers) SnapshotAddBackupJob(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "WebSnapshotAddBackupJob")
 	// check authorization
 	auth := authorization(w, r, ctx, "", "")
 	if auth != "" {
@@ -7360,8 +6723,8 @@ func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Reque
 
 	//get request body
 	decoder := json.NewDecoder(r.Body)
-	var addVolumeBackupRequest AddVolumeBackupRequest
-	err := decoder.Decode(&addVolumeBackupRequest)
+	var addSnapshotBackupJobRequest AddSnapshotBackupJobRequest
+	err := decoder.Decode(&addSnapshotBackupJobRequest)
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -7369,7 +6732,7 @@ func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Reque
 	}
 
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -7386,8 +6749,8 @@ func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Reque
 
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
 
-	var backupPlan PsqlVolumeBackupPlan
-	if err := db.First(&backupPlan, addVolumeBackupRequest.BackupPlanId).Error; err != nil {
+	var backupPlan VolumeBackupPlan
+	if err := db.First(&backupPlan, addSnapshotBackupJobRequest.BackupPlanId).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
 		} else {
@@ -7396,7 +6759,15 @@ func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	backupJob := PsqlVolumeBackupJob{
+	var count []VolumeBackupJob
+	var userBackupJobsCount int64
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).Find(&count).Count(&userBackupJobsCount).Error; err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+	backupJob := VolumeBackupJob{
+		UserBackupJobId:    int(userBackupJobsCount) + 1,
 		Name:               backupPlan.Name,
 		VolumeBackupPlanID: backupPlan.ID,
 		Duration:           backupPlan.Duration,
@@ -7404,9 +6775,14 @@ func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Reque
 		UpdatedOn:          timestamp,
 		Status:             StatusBackupTaskCreated,
 	}
-	db.Create(&backupJob)
+	result := db.Create(&backupJob)
+	if result.Error != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
 
-	var resp PsqlVolumeBackupJob
+	var resp VolumeBackupJob
 	if err := db.Last(&resp).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
@@ -7417,7 +6793,7 @@ func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	var resp2 []PsqlVolumeBackupJob
+	var resp2 []VolumeBackupJob
 	if err := db.Find(&resp2).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
@@ -7428,12 +6804,12 @@ func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	addVolumeBackupResponse := PsqlAddVolumeBackupResponse{
+	addSnapshotBackupJobResponse := AddSnapshotBackupJobResponse{
 		Data:    resp,
 		Status:  SuccessResponseStatus,
 		Message: SuccessResponseStatus,
 	}
-	dataBytes, err := json.Marshal(addVolumeBackupResponse)
+	dataBytes, err := json.Marshal(addSnapshotBackupJobResponse)
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeOfflineDealsErrorResponse(w, err)
@@ -7443,8 +6819,8 @@ func (web *webAPIHandlers) PsqlBackupAddJob(w http.ResponseWriter, r *http.Reque
 	return
 }
 
-func (web *webAPIHandlers) BackupAddJob(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebBackupAddJob")
+func (web *webAPIHandlers) SnapshotAddRebuildJob(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "WebSnapshotAddRebuildJob")
 	// check authorization
 	auth := authorization(w, r, ctx, "", "")
 	if auth != "" {
@@ -7453,8 +6829,8 @@ func (web *webAPIHandlers) BackupAddJob(w http.ResponseWriter, r *http.Request) 
 
 	//get request body
 	decoder := json.NewDecoder(r.Body)
-	var addVolumeBackupRequest AddVolumeBackupRequest
-	err := decoder.Decode(&addVolumeBackupRequest)
+	var addSnapshotRebuildRequest AddSnapshotRebuildRequest
+	err := decoder.Decode(&addSnapshotRebuildRequest)
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -7462,248 +6838,7 @@ func (web *webAPIHandlers) BackupAddJob(w http.ResponseWriter, r *http.Request) 
 	}
 
 	//open backup db
-	expandedDir, err := LevelDbBackupPath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer db.Close()
-
-	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-
-	backupPlanssKey := TableVolumeBackupPlan
-	//check if key exists
-	has, err := db.Has([]byte(backupPlanssKey), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	if has == false {
-		logs.GetLogger().Error(KeyNotInLevelDb)
-		writeWebErrorResponse(w, errors.New(KeyNotInLevelDb))
-		return
-	}
-	backupPlans, err := db.Get([]byte(backupPlanssKey), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	data := VolumeBackupJobPlans{}
-	err = json.Unmarshal(backupPlans, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	backupPlan := VolumeBackupJobPlan{}
-	for i, v := range data.VolumeBackupJobPlans {
-		if v.BackupPlanId == addVolumeBackupRequest.BackupPlanId {
-			backupPlan = data.VolumeBackupJobPlans[i]
-			data.VolumeBackupJobPlans[i].LastBackupOn = timestamp
-			break
-		}
-	}
-	dataByte, err := json.Marshal(data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	err = db.Put([]byte(backupPlanssKey), []byte(dataByte), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	dbVolumeBackupTasks := TableVolumeBackupTask
-
-	//check if key exists
-	has, err = db.Has([]byte(dbVolumeBackupTasks), nil)
-	if err != nil {
-		writeWebErrorResponse(w, err)
-		return
-	}
-	if has != false {
-		volumeBackupTasks, err := db.Get([]byte(dbVolumeBackupTasks), nil)
-		data := VolumeBackupTasks{}
-		err = json.Unmarshal(volumeBackupTasks, &data)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		newVolumeBackupPlanTask := VolumeBackupPlanTask{
-			CreatedOn:    timestamp,
-			UpdatedOn:    timestamp,
-			BackupTaskId: data.VolumeBackupTasksCounts + 1,
-			Status:       StatusBackupTaskCreated,
-		}
-		newVolumeBackupPlanTask.Data.Duration = backupPlan.Duration
-		planIndex := -1
-		for i, v := range data.VolumeBackupPlans {
-			if v.BackupPlanId == backupPlan.BackupPlanId {
-				planIndex = i
-				data.InProcessVolumeBackupTasksCounts = data.InProcessVolumeBackupTasksCounts + 1
-				data.VolumeBackupTasksCounts = data.VolumeBackupTasksCounts + 1
-				data.VolumeBackupPlans[planIndex].BackupPlanTasksCounts = data.VolumeBackupPlans[planIndex].BackupPlanTasksCounts + 1
-				data.VolumeBackupPlans[planIndex].BackupPlanTasks = append(data.VolumeBackupPlans[planIndex].BackupPlanTasks, newVolumeBackupPlanTask)
-				dataByte, err := json.Marshal(data)
-				if err != nil {
-					logs.GetLogger().Error(err)
-					writeWebErrorResponse(w, err)
-					return
-				}
-				err = db.Put([]byte(dbVolumeBackupTasks), []byte(dataByte), nil)
-				if err != nil {
-					logs.GetLogger().Error(err)
-					writeWebErrorResponse(w, err)
-					return
-				}
-				addVolumeBackupResponse := AddVolumeBackupResponse{
-					Data:    newVolumeBackupPlanTask,
-					Status:  SuccessResponseStatus,
-					Message: SuccessResponseStatus,
-				}
-				dataBytes, err := json.Marshal(addVolumeBackupResponse)
-				if err != nil {
-					logs.GetLogger().Error(err)
-					writeOfflineDealsErrorResponse(w, err)
-					return
-				}
-				w.Write(dataBytes)
-				return
-			}
-		}
-		if planIndex == -1 {
-			data.VolumeBackupPlansCounts = data.VolumeBackupPlansCounts + 1
-			data.VolumeBackupTasksCounts = data.VolumeBackupTasksCounts + 1
-			data.InProcessVolumeBackupTasksCounts = data.InProcessVolumeBackupTasksCounts + 1
-			newVolumeBackupPlanTask := VolumeBackupPlanTask{
-				CreatedOn:    timestamp,
-				UpdatedOn:    timestamp,
-				BackupTaskId: data.VolumeBackupTasksCounts,
-				Status:       StatusBackupTaskCreated,
-			}
-			newVolumeBackupPlanTask.Data.Duration = backupPlan.Duration
-			newVolumeBackupPlanTasks := []VolumeBackupPlanTask{}
-			newVolumeBackupPlanTasks = append(newVolumeBackupPlanTasks, newVolumeBackupPlanTask)
-			newVolumeBackupPlan := VolumeBackupPlan{
-				BackupPlanName:        backupPlan.BackupPlanName,
-				BackupPlanId:          backupPlan.BackupPlanId,
-				BackupPlanTasks:       newVolumeBackupPlanTasks,
-				BackupPlanTasksCounts: 1,
-			}
-			data.VolumeBackupPlans = append(data.VolumeBackupPlans, newVolumeBackupPlan)
-			dataByte, err := json.Marshal(data)
-			if err != nil {
-				logs.GetLogger().Error(err)
-				writeWebErrorResponse(w, err)
-				return
-			}
-			err = db.Put([]byte(dbVolumeBackupTasks), []byte(dataByte), nil)
-			if err != nil {
-				logs.GetLogger().Error(err)
-				writeWebErrorResponse(w, err)
-				return
-			}
-			addVolumeBackupResponse := AddVolumeBackupResponse{
-				Data:    newVolumeBackupPlanTask,
-				Status:  SuccessResponseStatus,
-				Message: SuccessResponseStatus,
-			}
-			dataBytes, err := json.Marshal(addVolumeBackupResponse)
-			if err != nil {
-				logs.GetLogger().Error(err)
-				writeOfflineDealsErrorResponse(w, err)
-				return
-			}
-			w.Write(dataBytes)
-			return
-		}
-	} else {
-		newVolumeBackupPlanTask := VolumeBackupPlanTask{
-			CreatedOn:    timestamp,
-			UpdatedOn:    timestamp,
-			BackupTaskId: 1,
-			Status:       StatusBackupTaskCreated,
-		}
-		newVolumeBackupPlanTask.Data.Duration = backupPlan.Duration
-		newVolumeBackupPlanTasks := []VolumeBackupPlanTask{}
-		newVolumeBackupPlanTasks = append(newVolumeBackupPlanTasks, newVolumeBackupPlanTask)
-		newVolumeBackupPlan := VolumeBackupPlan{
-			BackupPlanName:        backupPlan.BackupPlanName,
-			BackupPlanId:          backupPlan.BackupPlanId,
-			BackupPlanTasks:       newVolumeBackupPlanTasks,
-			BackupPlanTasksCounts: 1,
-		}
-		newVolumeBackupPlans := []VolumeBackupPlan{}
-		newVolumeBackupPlans = append(newVolumeBackupPlans, newVolumeBackupPlan)
-		newVolumeBackupTasks := VolumeBackupTasks{
-			VolumeBackupPlans:                newVolumeBackupPlans,
-			VolumeBackupTasksCounts:          1,
-			VolumeBackupPlansCounts:          1,
-			CompletedVolumeBackupTasksCounts: 0,
-			InProcessVolumeBackupTasksCounts: 1,
-			FailedVolumeBackupTasksCounts:    0,
-		}
-
-		dataByte, err := json.Marshal(newVolumeBackupTasks)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		err = db.Put([]byte(dbVolumeBackupTasks), []byte(dataByte), nil)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		addVolumeBackupResponse := AddVolumeBackupResponse{
-			Data:    newVolumeBackupPlanTask,
-			Status:  SuccessResponseStatus,
-			Message: SuccessResponseStatus,
-		}
-		dataBytes, err := json.Marshal(addVolumeBackupResponse)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeOfflineDealsErrorResponse(w, err)
-			return
-		}
-		w.Write(dataBytes)
-		return
-	}
-}
-
-func (web *webAPIHandlers) PsqlRebuildAddJob(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebPsqlRebuildAddJob")
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	//get request body
-	decoder := json.NewDecoder(r.Body)
-	var addVolumeRebuildRequest PsqlAddVolumeRebuildRequest
-	err := decoder.Decode(&addVolumeRebuildRequest)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -7720,8 +6855,8 @@ func (web *webAPIHandlers) PsqlRebuildAddJob(w http.ResponseWriter, r *http.Requ
 
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
 
-	var backupJob PsqlVolumeBackupJob
-	if err := db.First(&backupJob, addVolumeRebuildRequest.BackupTaskId).Error; err != nil {
+	var backupJob VolumeBackupJob
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).First(&backupJob, addSnapshotRebuildRequest.BackupTaskId).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
 		} else {
@@ -7730,18 +6865,31 @@ func (web *webAPIHandlers) PsqlRebuildAddJob(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	rebuildJob := PsqlVolumeRebuildJob{
-		MinerId:     backupJob.MinerId,
-		DealCid:     backupJob.DealCid,
-		PayloadCid:  backupJob.PayloadCid,
-		Status:      StatusRebuildTaskCreated,
-		CreatedOn:   timestamp,
-		UpdatedOn:   timestamp,
-		BackupJobId: backupJob.ID,
+	var count []VolumeRebuildJob
+	var userRebuildJobsCount int64
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).Find(&count).Count(&userRebuildJobsCount).Error; err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
 	}
-	db.Create(&rebuildJob)
-
-	addVolumeRebuildResponse := PsqlAddVolumeRebuildResponse{
+	rebuildJob := VolumeRebuildJob{
+		UserId:           config.GetUserConfig().UserId,
+		UserRebuildJobId: int(userRebuildJobsCount) + 1,
+		MinerId:          backupJob.MinerId,
+		DealCid:          backupJob.DealCid,
+		PayloadCid:       backupJob.PayloadCid,
+		Status:           StatusRebuildTaskCreated,
+		CreatedOn:        timestamp,
+		UpdatedOn:        timestamp,
+		BackupJobId:      backupJob.ID,
+	}
+	result := db.Create(&rebuildJob)
+	if result.Error != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+	addVolumeRebuildResponse := AddVolumeRebuildResponse{
 		Data:    rebuildJob,
 		Status:  SuccessResponseStatus,
 		Message: SuccessResponseStatus,
@@ -7754,11 +6902,10 @@ func (web *webAPIHandlers) PsqlRebuildAddJob(w http.ResponseWriter, r *http.Requ
 	}
 	w.Write(dataBytes)
 	return
-
 }
 
-func (web *webAPIHandlers) RebuildAddJob(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebRebuildAddJob")
+func (web *webAPIHandlers) RetrieveBackupPlan(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "WebRetrieveBackupPlan")
 	// check authorization
 	auth := authorization(w, r, ctx, "", "")
 	if auth != "" {
@@ -7767,135 +6914,7 @@ func (web *webAPIHandlers) RebuildAddJob(w http.ResponseWriter, r *http.Request)
 
 	//get request body
 	decoder := json.NewDecoder(r.Body)
-	var addVolumeRebuildRequest AddVolumeRebuildRequest
-	err := decoder.Decode(&addVolumeRebuildRequest)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-
-	//open backup db
-	expandedDir, err := LevelDbBackupPath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer db.Close()
-
-	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
-
-	backupTasksKey := TableVolumeBackupTask
-	backupTasks, err := db.Get([]byte(backupTasksKey), nil)
-	data := VolumeBackupTasks{}
-	err = json.Unmarshal(backupTasks, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	backupTask := VolumeBackupPlanTask{}
-	for _, v := range data.VolumeBackupPlans {
-		if v.BackupPlanId == addVolumeRebuildRequest.BackupPlanId {
-			for _, value := range v.BackupPlanTasks {
-				if value.BackupTaskId == addVolumeRebuildRequest.BackupTaskId {
-					backupTask = value
-					break
-				}
-			}
-		}
-	}
-
-	newVolumeRebuildTask := VolumeRebuildTask{
-		CreatedOn:    timestamp,
-		UpdatedOn:    timestamp,
-		MinerId:      backupTask.Data.DealInfo[0].MinerId,
-		DealCid:      backupTask.Data.DealInfo[0].DealCid,
-		PayloadCid:   backupTask.Data.DealInfo[0].PayloadCid,
-		BackupTaskId: backupTask.BackupTaskId,
-		Status:       StatusRebuildTaskCreated,
-	}
-
-	volumeBackupTasks, err := db.Get([]byte(TableVolumeRebuildTask), nil)
-	if err == nil {
-		data := VolumeRebuildJobs{}
-		err = json.Unmarshal(volumeBackupTasks, &data)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		newVolumeRebuildTask.RebuildTaskID = data.VolumeRebuildTasksCounts + 1
-		data.VolumeRebuildTasks = append(data.VolumeRebuildTasks, newVolumeRebuildTask)
-		data.VolumeRebuildTasksCounts = data.VolumeRebuildTasksCounts + 1
-		data.InProcessVolumeRebuildTasksCounts = data.InProcessVolumeRebuildTasksCounts + 1
-		dataBytes, err := json.Marshal(data)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		err = db.Put([]byte(TableVolumeRebuildTask), []byte(dataBytes), nil)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-	} else {
-		newVolumeRebuildTasks := []VolumeRebuildTask{}
-		newVolumeRebuildTask.RebuildTaskID = 1
-		newVolumeRebuildTasks = append(newVolumeRebuildTasks, newVolumeRebuildTask)
-		newVolumeRebuildJob := VolumeRebuildJobs{
-			VolumeRebuildTasks:                newVolumeRebuildTasks,
-			VolumeRebuildTasksCounts:          1,
-			InProcessVolumeRebuildTasksCounts: 1,
-		}
-		dataBytes, err := json.Marshal(newVolumeRebuildJob)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		err = db.Put([]byte(TableVolumeRebuildTask), []byte(dataBytes), nil)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-	}
-	addVolumeRebuildResponse := AddVolumeRebuildResponse{
-		Data:    newVolumeRebuildTask,
-		Status:  SuccessResponseStatus,
-		Message: SuccessResponseStatus,
-	}
-	dataBytes, err := json.Marshal(addVolumeRebuildResponse)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeOfflineDealsErrorResponse(w, err)
-		return
-	}
-	w.Write(dataBytes)
-	return
-
-}
-
-func (web *webAPIHandlers) PsqlRetrieveBackupPlan(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebPsqlRetrieveBackupPlan")
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	//get request body
-	decoder := json.NewDecoder(r.Body)
-	var volumeBackupRequest PsqlVolumeBackupRequest
+	var volumeBackupRequest VolumeBackupRequest
 	err := decoder.Decode(&volumeBackupRequest)
 	if err != nil {
 		logs.GetLogger().Error(err)
@@ -7911,7 +6930,7 @@ func (web *webAPIHandlers) PsqlRetrieveBackupPlan(w http.ResponseWriter, r *http
 	offset = offset * limit
 
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -7927,9 +6946,9 @@ func (web *webAPIHandlers) PsqlRetrieveBackupPlan(w http.ResponseWriter, r *http
 	}
 	defer sqlDB.Close()
 
-	var plans []PsqlVolumeBackupPlan
+	var plans []VolumeBackupPlan
 	if len(statusList) != 0 {
-		if err := db.Where("status IN (?)", statusList).Order("id").Limit(limit).Offset(offset).Find(&plans).Error; err != nil {
+		if err := db.Where("user_id=? AND status IN (?)", config.GetUserConfig().UserId, statusList).Order("id").Limit(limit).Offset(offset).Find(&plans).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logs.GetLogger().Info("No record found in database")
 			} else {
@@ -7939,7 +6958,7 @@ func (web *webAPIHandlers) PsqlRetrieveBackupPlan(w http.ResponseWriter, r *http
 			}
 		}
 	} else {
-		if err := db.Order("id").Limit(limit).Offset(offset).Find(&plans).Error; err != nil {
+		if err := db.Where("user_id=?", config.GetUserConfig().UserId).Order("id").Limit(limit).Offset(offset).Find(&plans).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logs.GetLogger().Info("No record found in database")
 			} else {
@@ -7950,7 +6969,7 @@ func (web *webAPIHandlers) PsqlRetrieveBackupPlan(w http.ResponseWriter, r *http
 		}
 	}
 
-	var count []PsqlVolumeBackupPlan
+	var count []VolumeBackupPlan
 	var totalVolumeBackupPlansCounts int64
 	if err := db.Find(&count).Count(&totalVolumeBackupPlansCounts).Error; err != nil {
 		logs.GetLogger().Error(err)
@@ -7958,7 +6977,7 @@ func (web *webAPIHandlers) PsqlRetrieveBackupPlan(w http.ResponseWriter, r *http
 		return
 	}
 
-	plan := PsqlVolumeBackupPlanResponse{
+	plan := VolumeBackupPlanResponse{
 		BackupPlans:                  plans,
 		TotalVolumeBackupPlansCounts: int(totalVolumeBackupPlansCounts),
 	}
@@ -7979,76 +6998,8 @@ func (web *webAPIHandlers) PsqlRetrieveBackupPlan(w http.ResponseWriter, r *http
 
 }
 
-func (web *webAPIHandlers) RetrieveBackupPlan(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebRetrieveBackupPlan")
-	// check authorization
-	auth := authorization(w, r, ctx, "", "")
-	if auth != "" {
-		return
-	}
-
-	//open backup db
-	expandedDir, err := LevelDbBackupPath()
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer db.Close()
-
-	//check if key exists
-	has, err := db.Has([]byte(TableVolumeBackupPlan), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	if has == false {
-		volumeRebuildJobsResponse := VolumeBackupPlansResponse{
-			Data:    VolumeBackupJobPlans{},
-			Status:  SuccessResponseStatus,
-			Message: KeyNotInLevelDb,
-		}
-		dataBytes, err := json.Marshal(volumeRebuildJobsResponse)
-		if err != nil {
-			logs.GetLogger().Error(err)
-			writeWebErrorResponse(w, err)
-			return
-		}
-		w.Write(dataBytes)
-		return
-	}
-
-	volumeBackupJobPlans, _ := db.Get([]byte(TableVolumeBackupPlan), nil)
-	data := VolumeBackupJobPlans{}
-	err = json.Unmarshal(volumeBackupJobPlans, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	volumeRebuildJobsResponse := VolumeBackupPlansResponse{
-		Data:    data,
-		Status:  SuccessResponseStatus,
-		Message: SuccessResponseStatus,
-	}
-	dataBytes, err := json.Marshal(volumeRebuildJobsResponse)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
-	}
-	w.Write(dataBytes)
-	return
-
-}
-
-func (web *webAPIHandlers) PsqlRetrieveRebuildVolume(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebPsqlRetrieveRebuildVolume")
+func (web *webAPIHandlers) RetrieveRebuildVolume(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "WebRetrieveRebuildVolume")
 	// check authorization
 	auth := authorization(w, r, ctx, "", "")
 	if auth != "" {
@@ -8057,7 +7008,7 @@ func (web *webAPIHandlers) PsqlRetrieveRebuildVolume(w http.ResponseWriter, r *h
 
 	//get request body
 	decoder := json.NewDecoder(r.Body)
-	var volumeRebuildRequest PsqlVolumeRebuildRequest
+	var volumeRebuildRequest VolumeRebuildRequest
 	err := decoder.Decode(&volumeRebuildRequest)
 	if err != nil {
 		logs.GetLogger().Error(err)
@@ -8073,7 +7024,7 @@ func (web *webAPIHandlers) PsqlRetrieveRebuildVolume(w http.ResponseWriter, r *h
 	offset = offset * limit
 
 	//open backup db
-	db, err := GetPsqlDb()
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -8089,39 +7040,12 @@ func (web *webAPIHandlers) PsqlRetrieveRebuildVolume(w http.ResponseWriter, r *h
 	}
 	defer sqlDB.Close()
 
-	var rebuildJobs []PsqlVolumeRebuildJob
+	var rebuildJobs []VolumeRebuildJob
 	db.Order("id").Limit(limit).Offset(offset).Find(&rebuildJobs)
 
-	var rebuildJobsFull []PsqlVolumeRebuildJobFull
-	for _, v := range rebuildJobs {
-		var backupJob PsqlVolumeBackupJob
-		if err := db.Where("id=?", v.BackupJobId).First(&backupJob).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				logs.GetLogger().Info("No record found in database")
-			} else {
-				logs.GetLogger().Error(err)
-				writeWebErrorResponse(w, err)
-				return
-			}
-		}
-		rebuildJobFull := PsqlVolumeRebuildJobFull{
-			ID:             v.ID,
-			MinerId:        v.MinerId,
-			DealCid:        v.DealCid,
-			PayloadCid:     v.PayloadCid,
-			Status:         v.Status,
-			CreatedOn:      v.CreatedOn,
-			UpdatedOn:      v.UpdatedOn,
-			BackupPlanName: backupJob.Name,
-			BackupJobId:    v.BackupJobId,
-			BackupJob:      v.BackupJob,
-		}
-		rebuildJobsFull = append(rebuildJobsFull, rebuildJobFull)
-	}
-
-	var count []PsqlVolumeRebuildJob
+	var count []VolumeRebuildJob
 	var inProcessVolumeRebuildTasksCounts, completedVolumeRebuildTasksCounts, failedVolumeRebuildTasksCounts, totalVolumeRebuildTasksCounts int64
-	if err := db.Where("status=?", StatusRebuildTaskCreated).Or("status=?", StatusRebuildTaskRunning).Find(&count).Count(&inProcessVolumeRebuildTasksCounts).Error; err != nil {
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusRebuildTaskCreated).Or("status=?", StatusRebuildTaskRunning).Find(&count).Count(&inProcessVolumeRebuildTasksCounts).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
 		} else {
@@ -8130,7 +7054,7 @@ func (web *webAPIHandlers) PsqlRetrieveRebuildVolume(w http.ResponseWriter, r *h
 			return
 		}
 	}
-	if err := db.Where("status=?", StatusRebuildTaskCompleted).Find(&count).Count(&completedVolumeRebuildTasksCounts).Error; err != nil {
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusRebuildTaskCompleted).Find(&count).Count(&completedVolumeRebuildTasksCounts).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
 		} else {
@@ -8139,7 +7063,7 @@ func (web *webAPIHandlers) PsqlRetrieveRebuildVolume(w http.ResponseWriter, r *h
 			return
 		}
 	}
-	if err := db.Where("status=?", StatusRebuildTaskFailed).Find(&count).Count(&failedVolumeRebuildTasksCounts).Error; err != nil {
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusRebuildTaskFailed).Find(&count).Count(&failedVolumeRebuildTasksCounts).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("No record found in database")
 		} else {
@@ -8149,19 +7073,19 @@ func (web *webAPIHandlers) PsqlRetrieveRebuildVolume(w http.ResponseWriter, r *h
 		}
 	}
 
-	if err := db.Find(&count).Count(&totalVolumeRebuildTasksCounts).Error; err != nil {
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).Find(&count).Count(&totalVolumeRebuildTasksCounts).Error; err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
 		return
 	}
-	psqlVolumeRebuildJobsResp := PsqlVolumeRebuildJobResp{
-		VolumeRebuildJobs:                 rebuildJobsFull,
+	psqlVolumeRebuildJobsResp := VolumeRebuildJobResp{
+		VolumeRebuildJobs:                 rebuildJobs,
 		TotalVolumeRebuildTasksCounts:     int(totalVolumeRebuildTasksCounts),
 		InProcessVolumeRebuildTasksCounts: int(inProcessVolumeRebuildTasksCounts),
 		CompletedVolumeRebuildTasksCounts: int(completedVolumeRebuildTasksCounts),
 		FailedVolumeRebuildTasksCounts:    int(failedVolumeRebuildTasksCounts),
 	}
-	volumeRebuildJobsResponse := PsqlVolumeRebuildJobsResponse{
+	volumeRebuildJobsResponse := VolumeRebuildJobsResponse{
 		Data:    psqlVolumeRebuildJobsResp,
 		Status:  SuccessResponseStatus,
 		Message: SuccessResponseStatus,
@@ -8176,65 +7100,122 @@ func (web *webAPIHandlers) PsqlRetrieveRebuildVolume(w http.ResponseWriter, r *h
 	return
 }
 
-func (web *webAPIHandlers) RetrieveRebuildVolume(w http.ResponseWriter, r *http.Request) {
-	ctx := newContext(r, w, "WebRetrieveRebuildVolume")
+func (web *webAPIHandlers) SnapshotRetrieveRebuildVolume(w http.ResponseWriter, r *http.Request) {
+	ctx := newContext(r, w, "WebSnapshotRetrieveRebuildVolume")
 	// check authorization
 	auth := authorization(w, r, ctx, "", "")
 	if auth != "" {
 		return
 	}
 
-	//open backup db
-	expandedDir, err := LevelDbBackupPath()
+	//get request body
+	decoder := json.NewDecoder(r.Body)
+	var volumeRebuildRequest VolumeRebuildRequest
+	err := decoder.Decode(&volumeRebuildRequest)
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
 		return
 	}
-	db, err := leveldb.OpenFile(expandedDir, nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-	}
-	defer db.Close()
 
-	//check if key exists
-	has, err := db.Has([]byte(TableVolumeRebuildTask), nil)
+	offset := volumeRebuildRequest.Offset
+	limit := volumeRebuildRequest.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	offset = offset * limit
+
+	//open backup db
+	db, err := GetFS3Db()
 	if err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
+		return
 	}
-	if has == false {
-		retrieveVolumeResponse := VolumeRebuildJobsResponse{
-			Data:    VolumeRebuildJobs{},
-			Status:  SuccessResponseStatus,
-			Message: KeyNotInLevelDb,
+
+	//close db
+	sqlDB, err := db.DB()
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+	defer sqlDB.Close()
+
+	var rebuildJobs []VolumeRebuildJob
+	db.Order("id").Limit(limit).Offset(offset).Find(&rebuildJobs)
+
+	var rebuildJobsFull []VolumeRebuildJob
+	for _, v := range rebuildJobs {
+		var backupJob VolumeBackupJob
+		if err := db.Where("id=?", v.BackupJobId).First(&backupJob).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				logs.GetLogger().Info("No record found in database")
+			} else {
+				logs.GetLogger().Error(err)
+				writeWebErrorResponse(w, err)
+				return
+			}
 		}
-		dataBytes, err := json.Marshal(retrieveVolumeResponse)
-		if err != nil {
+		rebuildJobFull := VolumeRebuildJob{
+			ID:             v.ID,
+			MinerId:        v.MinerId,
+			DealCid:        v.DealCid,
+			PayloadCid:     v.PayloadCid,
+			Status:         v.Status,
+			CreatedOn:      v.CreatedOn,
+			UpdatedOn:      v.UpdatedOn,
+			BackupPlanName: backupJob.Name,
+			BackupJobId:    v.BackupJobId,
+			BackupJob:      v.BackupJob,
+		}
+		rebuildJobsFull = append(rebuildJobsFull, rebuildJobFull)
+	}
+
+	var count []VolumeRebuildJob
+	var inProcessVolumeRebuildTasksCounts, completedVolumeRebuildTasksCounts, failedVolumeRebuildTasksCounts, totalVolumeRebuildTasksCounts int64
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusRebuildTaskCreated).Or("status=?", StatusRebuildTaskRunning).Find(&count).Count(&inProcessVolumeRebuildTasksCounts).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
 			logs.GetLogger().Error(err)
 			writeWebErrorResponse(w, err)
 			return
 		}
-		w.Write(dataBytes)
-		return
+	}
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusRebuildTaskCompleted).Find(&count).Count(&completedVolumeRebuildTasksCounts).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
+	if err := db.Where("user_id=? AND status=?", config.GetUserConfig().UserId, StatusRebuildTaskFailed).Find(&count).Count(&failedVolumeRebuildTasksCounts).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
 	}
 
-	volumeRebuildTasks, err := db.Get([]byte(TableVolumeRebuildTask), nil)
-	if err != nil {
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).Find(&count).Count(&totalVolumeRebuildTasksCounts).Error; err != nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
 		return
 	}
-	data := VolumeRebuildJobs{}
-	err = json.Unmarshal(volumeRebuildTasks, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
+	psqlVolumeRebuildJobsResp := VolumeRebuildJobResp{
+		VolumeRebuildJobs:                 rebuildJobsFull,
+		TotalVolumeRebuildTasksCounts:     int(totalVolumeRebuildTasksCounts),
+		InProcessVolumeRebuildTasksCounts: int(inProcessVolumeRebuildTasksCounts),
+		CompletedVolumeRebuildTasksCounts: int(completedVolumeRebuildTasksCounts),
+		FailedVolumeRebuildTasksCounts:    int(failedVolumeRebuildTasksCounts),
 	}
 	volumeRebuildJobsResponse := VolumeRebuildJobsResponse{
-		Data:    data,
+		Data:    psqlVolumeRebuildJobsResp,
 		Status:  SuccessResponseStatus,
 		Message: SuccessResponseStatus,
 	}
@@ -8380,23 +7361,28 @@ type ClientRetrieveDealParamDataPartTwo struct {
 	IsCAR bool
 }
 
-type PsqlVolumeBackupPlan struct {
-	ID            int `gorm:"primary_key"`
-	Name          string
-	Interval      string
-	MinerRegion   string
-	Price         string
-	Duration      string
-	VerifiedDeal  bool
-	FastRetrieval bool
-	Status        string
-	LastBackupOn  string
-	CreatedOn     string
-	UpdatedOn     string
+type VolumeBackupPlan struct {
+	ID               int `gorm:"primary_key"`
+	UserId           int
+	UserBackupPlanId int
+	Name             string
+	Interval         string
+	MinerRegion      string
+	Price            string
+	Duration         string
+	VerifiedDeal     bool
+	FastRetrieval    bool
+	Status           string
+	LastBackupOn     string
+	CreatedOn        string
+	UpdatedOn        string
+	User             User `gorm:"foreignKey:UserID"`
 }
 
-type PsqlVolumeBackupJob struct {
+type VolumeBackupJob struct {
 	ID                 int `gorm:"primary_key"`
+	UserId             int
+	UserBackupJobId    int
 	Name               string
 	Uuid               string
 	SourceFileName     string
@@ -8414,36 +7400,27 @@ type PsqlVolumeBackupJob struct {
 	CreatedOn          string
 	UpdatedOn          string
 	VolumeBackupPlanID int
-	VolumeBackupPlan   PsqlVolumeBackupPlan `gorm:"foreignKey:VolumeBackupPlanID"`
+	VolumeBackupPlan   VolumeBackupPlan `gorm:"foreignKey:VolumeBackupPlanID"`
 }
 
-type PsqlVolumeRebuildJob struct {
-	ID          int `gorm:"primary_key"`
-	MinerId     string
-	DealCid     string
-	PayloadCid  string
-	Status      string
-	CreatedOn   string
-	UpdatedOn   string
-	BackupJobId int
-	BackupJob   PsqlVolumeBackupJob
+type VolumeRebuildJob struct {
+	ID               int `gorm:"primary_key"`
+	UserId           int
+	UserRebuildJobId int
+	MinerId          string
+	DealCid          string
+	PayloadCid       string
+	Status           string
+	CreatedOn        string
+	UpdatedOn        string
+	BackupJobId      int
+	BackupPlanName   string
+	BackupJob        VolumeBackupJob
 }
 
-type PsqlVolumeRebuildJobFull struct {
-	ID             int
-	MinerId        string
-	DealCid        string
-	PayloadCid     string
-	Status         string
-	CreatedOn      string
-	UpdatedOn      string
-	BackupPlanName string
-	BackupJobId    int
-	BackupJob      PsqlVolumeBackupJob
-}
-
-type PsqlVolumeBackupCarCsv struct {
-	gorm.Model
+type VolumeBackupCarCsv struct {
+	ID             int `gorm:"primary_key"`
+	UserId         int
 	Uuid           string
 	SourceFileName string
 	SourceFilePath string
@@ -8463,8 +7440,9 @@ type PsqlVolumeBackupCarCsv struct {
 	Cost           string
 }
 
-type PsqlVolumeBackupMetadataCsv struct {
-	gorm.Model
+type VolumeBackupMetadataCsv struct {
+	ID             int `gorm:"primary_key"`
+	UserId         int
 	Uuid           string
 	SourceFileName string
 	SourceFilePath string
@@ -8484,8 +7462,9 @@ type PsqlVolumeBackupMetadataCsv struct {
 	Cost           string
 }
 
-type PsqlVolumeBackupTaskCsv struct {
-	gorm.Model
+type VolumeBackupTaskCsv struct {
+	ID             int `gorm:"primary_key"`
+	UserId         int
 	Uuid           string
 	SourceFileName string
 	MinerId        string
@@ -8499,13 +7478,45 @@ type PsqlVolumeBackupTaskCsv struct {
 	Cost           string
 }
 
-type PsqlVolumeBackupRequest struct {
+type VolumeBackupRequest struct {
 	Offset int      `json:"offset"`
 	Limit  int      `json:"limit"`
 	Status []string `json:"status"`
 }
 
-type PsqlVolumeRebuildRequest struct {
+type VolumeRebuildRequest struct {
 	Offset int `json:"offset"`
 	Limit  int `json:"limit"`
+}
+
+type User struct {
+	ID     int `gorm:"primary_key"`
+	UserId int
+}
+
+func (web *webAPIHandlers) Test(w http.ResponseWriter, r *http.Request) {
+	dsn := "root:oracle9i@tcp(192.168.88.188:3306)/fs3?charset=utf8mb4&parseTime=True&loc=Local"
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+
+	// create tables
+	db.Migrator().DropTable(&User{})
+	db.Migrator().DropTable(&VolumeBackupPlan{})
+	db.Migrator().DropTable(&VolumeBackupJob{})
+	db.Migrator().DropTable(&VolumeRebuildJob{})
+	db.Migrator().DropTable(&VolumeBackupCarCsv{})
+	db.Migrator().DropTable(&VolumeBackupMetadataCsv{})
+	db.Migrator().DropTable(&VolumeBackupTaskCsv{})
+	db.AutoMigrate(&User{})
+	db.AutoMigrate(&VolumeBackupPlan{})
+	db.AutoMigrate(&VolumeBackupJob{})
+	db.AutoMigrate(&VolumeRebuildJob{})
+	db.AutoMigrate(&VolumeBackupCarCsv{})
+	db.AutoMigrate(&VolumeBackupMetadataCsv{})
+	db.AutoMigrate(&VolumeBackupTaskCsv{})
+	return
 }

@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 )
 
 // GlobalFlags - global flags for minio.
@@ -196,13 +197,14 @@ func initUserConfig(standAlone bool) {
 	lotusClientApiUrl := os.Getenv("LOTUS_CLIENT_API_URL")
 	lotusClientAccessToken := os.Getenv("LOTUS_CLIENT_ACCESS_TOKEN")
 	volumeBackupAddress := os.Getenv("VOLUME_BACKUP_ADDRESS")
-	psqlHost := os.Getenv("PSQL_HOST")
-	psqlUser := os.Getenv("PSQL_USER")
-	psqlPassword := os.Getenv("PSQL_PASSWORD")
-	psqlDbname := os.Getenv("PSQL_DBNAME")
-	psqlPort := os.Getenv("PSQL_PORT")
+	dbHost := os.Getenv("DB_HOST")
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbName := os.Getenv("DB_DBNAME")
+	dbPort := os.Getenv("DB_PORT")
+	userId, _ := strconv.Atoi(os.Getenv("USER_ID"))
 	//logs.GetLogger().Println(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize, ipfsApiAddress, ipfsGateway, swanToken, lotusClientApiUrl, lotusClientAccessToken, volumeBackupAddress)
-	config.InitUserConfig(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize, ipfsApiAddress, ipfsGateway, swanToken, lotusClientApiUrl, lotusClientAccessToken, volumeBackupAddress, psqlHost, psqlUser, psqlPassword, psqlDbname, psqlPort)
+	config.InitUserConfig(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize, ipfsApiAddress, ipfsGateway, swanToken, lotusClientApiUrl, lotusClientAccessToken, volumeBackupAddress, dbHost, dbUser, dbPassword, dbName, dbPort, userId)
 
 }
 
