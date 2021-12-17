@@ -200,7 +200,7 @@ func initUserConfig(standAlone bool) {
 	dbHost := os.Getenv("DB_HOST")
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
-	dbName := os.Getenv("DB_DBNAME")
+	dbName := os.Getenv("DB_NAME")
 	dbPort := os.Getenv("DB_PORT")
 	userId, _ := strconv.Atoi(os.Getenv("USER_ID"))
 	//logs.GetLogger().Println(swanAddress, fs3VolumeAddress, fs3WalletAddress, carFileSize, ipfsApiAddress, ipfsGateway, swanToken, lotusClientApiUrl, lotusClientAccessToken, volumeBackupAddress)

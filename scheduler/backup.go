@@ -768,8 +768,8 @@ func GetFS3Db() (*gorm.DB, error) {
 }
 
 type User struct {
-	ID     int `gorm:"primary_key"`
-	UserId int
+	ID         int `gorm:"primary_key"`
+	SwanUserId int `gorm:"unique"`
 }
 
 type VolumeBackupPlan struct {
@@ -787,7 +787,7 @@ type VolumeBackupPlan struct {
 	LastBackupOn     string
 	CreatedOn        string
 	UpdatedOn        string
-	User             User `gorm:"foreignKey:UserID"`
+	User             User `gorm:"foreignKey:UserId;references:SwanUserId"`
 }
 
 type VolumeBackupJob struct {
@@ -811,7 +811,7 @@ type VolumeBackupJob struct {
 	CreatedOn          string
 	UpdatedOn          string
 	VolumeBackupPlanID int
-	VolumeBackupPlan   VolumeBackupPlan `gorm:"foreignKey:VolumeBackupPlanID"`
+	VolumeBackupPlan   VolumeBackupPlan `gorm:"foreignKey:VolumeBackupPlanID;references:ID"`
 }
 
 type VolumeBackupCarCsv struct {

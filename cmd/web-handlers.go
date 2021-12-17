@@ -3984,18 +3984,6 @@ func GetFS3Db() (*gorm.DB, error) {
 	return db, err
 }
 
-func LevelDbBackupPath() (string, error) {
-	volumeBackUpAddress := config.GetUserConfig().VolumeBackupAddress
-	levelDbName := ".leveldb.db"
-	levelDbPath := filepath.Join(volumeBackUpAddress, levelDbName)
-	expandedDir, err := oshomedir.Expand(levelDbPath)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return "", err
-	}
-	return expandedDir, nil
-}
-
 func BucketZipPath(outputBucketZipPath string) (string, error) {
 	expandedDir, err := oshomedir.Expand(outputBucketZipPath)
 	if err != nil {
@@ -6580,7 +6568,7 @@ func (web *webAPIHandlers) BackupVolumeAddPlan(w http.ResponseWriter, r *http.Re
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("User not found in database. Start adding new user")
 			newUser := User{
-				UserId: userId,
+				SwanUserId: userId,
 			}
 			result := db.Create(&newUser)
 			if result.Error != nil {
@@ -6881,7 +6869,7 @@ func (web *webAPIHandlers) SnapshotAddRebuildJob(w http.ResponseWriter, r *http.
 		Status:           StatusRebuildTaskCreated,
 		CreatedOn:        timestamp,
 		UpdatedOn:        timestamp,
-		BackupJobId:      backupJob.ID,
+		BackupJobID:      backupJob.ID,
 	}
 	result := db.Create(&rebuildJob)
 	if result.Error != nil {
@@ -7148,7 +7136,7 @@ func (web *webAPIHandlers) SnapshotRetrieveRebuildVolume(w http.ResponseWriter, 
 	var rebuildJobsFull []VolumeRebuildJob
 	for _, v := range rebuildJobs {
 		var backupJob VolumeBackupJob
-		if err := db.Where("id=?", v.BackupJobId).First(&backupJob).Error; err != nil {
+		if err := db.Where("id=?", v.BackupJobID).First(&backupJob).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logs.GetLogger().Info("No record found in database")
 			} else {
@@ -7166,7 +7154,7 @@ func (web *webAPIHandlers) SnapshotRetrieveRebuildVolume(w http.ResponseWriter, 
 			CreatedOn:      v.CreatedOn,
 			UpdatedOn:      v.UpdatedOn,
 			BackupPlanName: backupJob.Name,
-			BackupJobId:    v.BackupJobId,
+			BackupJobID:    v.BackupJobID,
 			BackupJob:      v.BackupJob,
 		}
 		rebuildJobsFull = append(rebuildJobsFull, rebuildJobFull)
@@ -7361,6 +7349,11 @@ type ClientRetrieveDealParamDataPartTwo struct {
 	IsCAR bool
 }
 
+type User struct {
+	ID         int `gorm:"primary_key"`
+	SwanUserId int `gorm:"unique"`
+}
+
 type VolumeBackupPlan struct {
 	ID               int `gorm:"primary_key"`
 	UserId           int
@@ -7376,7 +7369,7 @@ type VolumeBackupPlan struct {
 	LastBackupOn     string
 	CreatedOn        string
 	UpdatedOn        string
-	User             User `gorm:"foreignKey:UserID"`
+	User             User `gorm:"foreignKey:UserId;references:SwanUserId"`
 }
 
 type VolumeBackupJob struct {
@@ -7400,7 +7393,7 @@ type VolumeBackupJob struct {
 	CreatedOn          string
 	UpdatedOn          string
 	VolumeBackupPlanID int
-	VolumeBackupPlan   VolumeBackupPlan `gorm:"foreignKey:VolumeBackupPlanID"`
+	VolumeBackupPlan   VolumeBackupPlan `gorm:"foreignKey:VolumeBackupPlanID;references:ID"`
 }
 
 type VolumeRebuildJob struct {
@@ -7413,9 +7406,9 @@ type VolumeRebuildJob struct {
 	Status           string
 	CreatedOn        string
 	UpdatedOn        string
-	BackupJobId      int
+	BackupJobID      int
 	BackupPlanName   string
-	BackupJob        VolumeBackupJob
+	BackupJob        VolumeBackupJob `gorm:"foreignKey:BackupJobID;references:ID"`
 }
 
 type VolumeBackupCarCsv struct {
@@ -7487,11 +7480,6 @@ type VolumeBackupRequest struct {
 type VolumeRebuildRequest struct {
 	Offset int `json:"offset"`
 	Limit  int `json:"limit"`
-}
-
-type User struct {
-	ID     int `gorm:"primary_key"`
-	UserId int
 }
 
 func (web *webAPIHandlers) Test(w http.ResponseWriter, r *http.Request) {

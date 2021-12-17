@@ -125,7 +125,7 @@ func GetOneRunningRebuildJobPerUser(db *gorm.DB) ([]VolumeRebuildJob, error) {
 	var runningRebuildJobs []VolumeRebuildJob
 	for _, v := range users {
 		var runningRebuildJob VolumeRebuildJob
-		if err := db.Where("user_id=? And status=?", v.UserId, StatusRebuildTaskCreated).Or("status=?", StatusRebuildTaskRunning).First(&runningRebuildJob).Error; err != nil {
+		if err := db.Where("user_id=? And status=?", v.SwanUserId, StatusRebuildTaskCreated).Or("status=?", StatusRebuildTaskRunning).First(&runningRebuildJob).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				logs.GetLogger().Info("No record found in database")
 			} else {
@@ -307,7 +307,7 @@ type VolumeRebuildJob struct {
 	Status           string
 	CreatedOn        string
 	UpdatedOn        string
-	BackupJobId      int
+	BackupJobID      int
 	BackupPlanName   string
-	BackupJob        VolumeBackupJob
+	BackupJob        VolumeBackupJob `gorm:"foreignKey:BackupJobID;references:ID"`
 }
