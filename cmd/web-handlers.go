@@ -3553,10 +3553,8 @@ func (web *webAPIHandlers) SendDeal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fs3VolumeAddress := config.GetUserConfig().Fs3VolumeAddress
-
 	//sourceBucketPath := filepath.Join(fs3VolumeAddress, bucket)
-	sourceFilePath := filepath.Join(fs3VolumeAddress, bucket, object)
+	sourceFilePath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket, object)
 	// send online deal to lotus
 	filWallet := config.GetUserConfig().Fs3WalletAddress
 	if filWallet == "" {
@@ -3824,9 +3822,8 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 		w.Write(bodyByte)
 		return
 	}
-	fs3VolumeAddress := config.GetUserConfig().Fs3VolumeAddress
-	sourceBucketPath := filepath.Join(fs3VolumeAddress, bucket)
-	outputBucketZipPath := filepath.Join(fs3VolumeAddress, bucket+"_deals.zip")
+	sourceBucketPath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket)
+	outputBucketZipPath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket+"_deals.zip")
 	sourceBucketZipPath, err := ZipBucket(sourceBucketPath, outputBucketZipPath)
 	if err != nil {
 		writeWebErrorResponse(w, err)
@@ -6564,7 +6561,7 @@ func (web *webAPIHandlers) BackupVolumeAddPlan(w http.ResponseWriter, r *http.Re
 	//add user if not exit
 	userId := config.GetUserConfig().UserId
 	var user User
-	if err := db.Where("user_id=?", userId).First(&user).Error; err != nil {
+	if err := db.Where("swan_user_id=?", userId).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			logs.GetLogger().Info("User not found in database. Start adding new user")
 			newUser := User{
@@ -6572,8 +6569,8 @@ func (web *webAPIHandlers) BackupVolumeAddPlan(w http.ResponseWriter, r *http.Re
 			}
 			result := db.Create(&newUser)
 			if result.Error != nil {
-				logs.GetLogger().Error(err)
-				writeWebErrorResponse(w, err)
+				logs.GetLogger().Error(result.Error)
+				writeWebErrorResponse(w, result.Error)
 				return
 			}
 		} else {
@@ -6586,9 +6583,12 @@ func (web *webAPIHandlers) BackupVolumeAddPlan(w http.ResponseWriter, r *http.Re
 	var count []VolumeBackupPlan
 	var userBackupPlanCount int64
 	if err := db.Where("user_id=?", userId).Find(&count).Count(&userBackupPlanCount).Error; err != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
-		return
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
 	}
 
 	newbackupPlan := VolumeBackupPlan{
@@ -6608,8 +6608,8 @@ func (web *webAPIHandlers) BackupVolumeAddPlan(w http.ResponseWriter, r *http.Re
 
 	result := db.Create(&newbackupPlan)
 	if result.Error != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
+		logs.GetLogger().Error(result.Error)
+		writeWebErrorResponse(w, result.Error)
 		return
 	}
 
@@ -6765,8 +6765,8 @@ func (web *webAPIHandlers) SnapshotAddBackupJob(w http.ResponseWriter, r *http.R
 	}
 	result := db.Create(&backupJob)
 	if result.Error != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
+		logs.GetLogger().Error(result.Error)
+		writeWebErrorResponse(w, result.Error)
 		return
 	}
 
@@ -6873,8 +6873,8 @@ func (web *webAPIHandlers) SnapshotAddRebuildJob(w http.ResponseWriter, r *http.
 	}
 	result := db.Create(&rebuildJob)
 	if result.Error != nil {
-		logs.GetLogger().Error(err)
-		writeWebErrorResponse(w, err)
+		logs.GetLogger().Error(result.Error)
+		writeWebErrorResponse(w, result.Error)
 		return
 	}
 	addVolumeRebuildResponse := AddVolumeRebuildResponse{
@@ -7029,7 +7029,15 @@ func (web *webAPIHandlers) RetrieveRebuildVolume(w http.ResponseWriter, r *http.
 	defer sqlDB.Close()
 
 	var rebuildJobs []VolumeRebuildJob
-	db.Order("id").Limit(limit).Offset(offset).Find(&rebuildJobs)
+	if err := db.Where("user_id=?", config.GetUserConfig().UserId).Order("id").Limit(limit).Offset(offset).Find(&rebuildJobs).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logs.GetLogger().Info("No record found in database")
+		} else {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
 
 	var count []VolumeRebuildJob
 	var inProcessVolumeRebuildTasksCounts, completedVolumeRebuildTasksCounts, failedVolumeRebuildTasksCounts, totalVolumeRebuildTasksCounts int64
