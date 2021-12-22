@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/filswan/go-swan-lib/client"
+	"github.com/filswan/go-swan-lib/client/web"
 	"github.com/minio/minio/internal/config"
 	"github.com/minio/minio/logs"
 	"github.com/robfig/cron"
@@ -263,7 +263,7 @@ func LotusRpcClientRetrieve(minerId string, payloadCid string, outputPath string
 		Params:  params,
 		Id:      LOTUS_JSON_RPC_ID,
 	}
-	response := client.HttpGet(config.GetUserConfig().LotusClientApiUrl, config.GetUserConfig().LotusClientAccessToken, jsonRpcParams)
+	response := web.HttpGet(config.GetUserConfig().LotusClientApiUrl, config.GetUserConfig().LotusClientAccessToken, jsonRpcParams)
 	if response == "" {
 		err := fmt.Errorf("failed to retrieve data %s from miner %s, no response", payloadCid, minerId)
 		logs.GetLogger().Error(err)

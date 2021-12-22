@@ -28,19 +28,40 @@ import (
 	"fmt"
 	"github.com/codingsince1985/checksum"
 	"github.com/filedrive-team/go-graphsplit"
-	"github.com/filswan/go-swan-lib/client"
 	"github.com/filswan/go-swan-lib/client/lotus"
 	libconstants "github.com/filswan/go-swan-lib/constants"
 	libutils "github.com/filswan/go-swan-lib/utils"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	files "github.com/ipfs/go-ipfs-files"
+	"github.com/klauspost/compress/zip"
 	csv "github.com/minio/csvparser"
+	"github.com/minio/minio-go/v7"
+	miniogo "github.com/minio/minio-go/v7"
+	miniogopolicy "github.com/minio/minio-go/v7/pkg/policy"
+	"github.com/minio/minio-go/v7/pkg/s3utils"
+	"github.com/minio/minio/internal/auth"
+	objectlock "github.com/minio/minio/internal/bucket/object/lock"
+	"github.com/minio/minio/internal/bucket/replication"
 	"github.com/minio/minio/internal/config"
+	"github.com/minio/minio/internal/config/dns"
+	"github.com/minio/minio/internal/config/identity/openid"
+	"github.com/minio/minio/internal/crypto"
+	"github.com/minio/minio/internal/etag"
+	"github.com/minio/minio/internal/event"
+	"github.com/minio/minio/internal/handlers"
+	"github.com/minio/minio/internal/hash"
+	xhttp "github.com/minio/minio/internal/http"
+	"github.com/minio/minio/internal/ioutil"
+	"github.com/minio/minio/internal/logger"
 	"github.com/minio/minio/logs"
+	"github.com/minio/pkg/bucket/policy"
+	iampolicy "github.com/minio/pkg/iam/policy"
+	"github.com/minio/rpc/json2"
 	oshomedir "github.com/mitchellh/go-homedir"
+	"github.com/shopspring/decimal"
 	"github.com/syndtr/goleveldb/leveldb"
 	"mime/multipart"
-
 	//"github.com/filedrive-team/go-graphsplit"
 	"io"
 	"net"
@@ -54,30 +75,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/gorilla/mux"
-	"github.com/klauspost/compress/zip"
-	"github.com/minio/minio-go/v7"
-	miniogo "github.com/minio/minio-go/v7"
-	miniogopolicy "github.com/minio/minio-go/v7/pkg/policy"
-	"github.com/minio/minio-go/v7/pkg/s3utils"
-
-	"github.com/minio/minio/internal/auth"
-	objectlock "github.com/minio/minio/internal/bucket/object/lock"
-	"github.com/minio/minio/internal/bucket/replication"
-	"github.com/minio/minio/internal/config/dns"
-	"github.com/minio/minio/internal/config/identity/openid"
-	"github.com/minio/minio/internal/crypto"
-	"github.com/minio/minio/internal/etag"
-	"github.com/minio/minio/internal/event"
-	"github.com/minio/minio/internal/handlers"
-	"github.com/minio/minio/internal/hash"
-	xhttp "github.com/minio/minio/internal/http"
-	"github.com/minio/minio/internal/ioutil"
-	"github.com/minio/minio/internal/logger"
-	"github.com/minio/pkg/bucket/policy"
-	iampolicy "github.com/minio/pkg/iam/policy"
-	"github.com/minio/rpc/json2"
 
 	clientmodel "github.com/filswan/go-swan-client/model"
 	"github.com/filswan/go-swan-client/subcommand"
@@ -3555,6 +3552,7 @@ func (web *webAPIHandlers) SendDeal(w http.ResponseWriter, r *http.Request) {
 
 	//sourceBucketPath := filepath.Join(fs3VolumeAddress, bucket)
 	sourceFilePath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket, object)
+	sourceFilePathInContainer := filepath.Join(os.Getenv("FS3_WALLET_ADDRESS"), bucket, object)
 	// send online deal to lotus
 	filWallet := config.GetUserConfig().Fs3WalletAddress
 	if filWallet == "" {
@@ -3577,7 +3575,16 @@ func (web *webAPIHandlers) SendDeal(w http.ResponseWriter, r *http.Request) {
 	verifiedDeal := "--verified-deal=" + onlineDealRequest.VerifiedDeal
 	fastRetrieval := "--fast-retrieval=" + onlineDealRequest.FastRetrieval
 	commandLine := "lotus " + "client " + "import " + sourceFilePath
-	dataCID, err := ExecCommand(commandLine)
+	logs.GetLogger().Info("================lotus send deal command : ", commandLine, "===========================")
+	logs.GetLogger().Info("url=", os.Getenv("LOTUS_CLIENT_API_URL"), "token=", os.Getenv("LOTUS_CLIENT_ACCESS_TOKEN"))
+	lotusClient, err := lotus.LotusGetClient(os.Getenv("LOTUS_CLIENT_API_URL"), os.Getenv("LOTUS_CLIENT_ACCESS_TOKEN"))
+	logs.GetLogger().Info(lotusClient)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
+	dataCID, err := lotusClient.LotusClientImport(sourceFilePath, false)
+	logs.GetLogger().Info("-----------------------dataCID=", *dataCID, "------------------------------")
 	if err != nil {
 		noDataCidResponse := OnlineDealResponse{}
 		sendResponse := SendResponse{
@@ -3594,9 +3601,50 @@ func (web *webAPIHandlers) SendDeal(w http.ResponseWriter, r *http.Request) {
 		w.Write(bodyByte)
 		return
 	}
-	outStr := strings.Fields(string(dataCID))
+	outStr := strings.Fields(string(*dataCID))
 	dataCIDStr := outStr[len(outStr)-1]
-	dealCID, err := exec.Command("lotus", "client", "deal", "--from", filWallet, verifiedDeal, fastRetrieval, dataCIDStr, onlineDealRequest.MinerId, onlineDealRequest.Price, onlineDealRequest.Duration).Output()
+	//fileDesc,err := subcommand.SendDeals(confDeal)
+	fileDesc := new(libmodel.FileDesc)
+	fileDesc.DataCid = *dataCID
+	//pieceCid := lotusClient.LotusClientCalcCommP(sourceFilePath)
+	fileSize, err := DirSize(sourceFilePathInContainer)
+	logs.GetLogger().Info("----------------------------------file size=", fileSize, "------------------------------------")
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
+	pieceSize, _ := libutils.CalculatePieceSize(fileSize)
+	logs.GetLogger().Info("----------------------------------piece size=", pieceSize, "------------------------------------")
+	//fileDesc.PieceCid = *pieceCid
+	dealConfig := new(libmodel.DealConfig)
+	if strings.ToLower(verifiedDeal) == "true" {
+		dealConfig.VerifiedDeal = true
+	} else {
+		dealConfig.VerifiedDeal = false
+	}
+	dealConfig.MinerFid = onlineDealRequest.MinerId
+	if strings.ToLower(fastRetrieval) == "true" {
+		dealConfig.FastRetrieval = true
+	} else {
+		dealConfig.FastRetrieval = false
+	}
+	dealConfig.TransferType = "online"
+	durationInt, err := strconv.Atoi(onlineDealRequest.Duration)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
+	dealConfig.Duration = durationInt
+	dealConfig.SenderWallet = filWallet
+	priceDecimal, err := decimal.NewFromString(onlineDealRequest.Price)
+	relativeEpoch, err := strconv.Atoi(os.Getenv("RELATIVE_EPOCH_FROM_MAIN_NETWORK"))
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
+	dealCID, _, err := lotusClient.LotusClientStartDeal(*fileDesc, priceDecimal, pieceSize, *dealConfig, relativeEpoch)
+	logs.GetLogger().Info("----------------------------------deal cid=", *dealCID, "------------------------------------")
+	//dealCID, err := exec.Command("lotus", "client", "deal", "--from", filWallet, verifiedDeal, fastRetrieval, dataCIDStr, onlineDealRequest.MinerId, onlineDealRequest.Price, onlineDealRequest.Duration).Output()
 	if err != nil {
 		noDealCidResponse := OnlineDealResponse{}
 		sendResponse := SendResponse{
@@ -3613,7 +3661,7 @@ func (web *webAPIHandlers) SendDeal(w http.ResponseWriter, r *http.Request) {
 		w.Write(bodyByte)
 		return
 	}
-	dealCIDStr := string(dealCID)
+	dealCIDStr := string(*dealCID)
 	dealCIDStr = strings.TrimSuffix(dealCIDStr, "\n")
 
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
@@ -3833,8 +3881,15 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 
 	verifiedDeal := "--verified-deal=" + onlineDealRequest.VerifiedDeal
 	fastRetrieval := "--fast-retrieval=" + onlineDealRequest.FastRetrieval
-	commandLine := "lotus " + "client " + "import " + sourceBucketZipPath
-	dataCID, err := ExecCommand(commandLine)
+	//commandLine := "lotus " + "client " + "import " + sourceBucketZipPath
+	lotusClient, err := lotus.LotusGetClient(os.Getenv("LOTUS_CLIENT_API_URL"), os.Getenv("LOTUS_CLIENT_ACCESS_TOKEN"))
+	logs.GetLogger().Info(lotusClient)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
+	dataCID, err := lotusClient.LotusClientImport(sourceBucketZipPath, false)
+	//dataCID, err := ExecCommand(commandLine)
 	if err != nil {
 		noDataCidResponse := OnlineDealResponse{}
 		sendResponse := SendResponse{
@@ -3851,7 +3906,7 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 		w.Write(bodyByte)
 		return
 	}
-	outStr := strings.Fields(string(dataCID))
+	outStr := strings.Fields(string(*dataCID))
 	dataCIDStr := outStr[len(outStr)-1]
 	dealCID, err := exec.Command("lotus", "client", "deal", "--from", filWallet, verifiedDeal, fastRetrieval, dataCIDStr, onlineDealRequest.MinerId, onlineDealRequest.Price, onlineDealRequest.Duration).Output()
 	if err != nil {
@@ -7228,97 +7283,6 @@ func (web *webAPIHandlers) SnapshotRetrieveRebuildVolume(w http.ResponseWriter, 
 type ClientImportCar struct {
 	Path  string
 	IsCAR bool
-}
-
-func LotusRpcClientImportCar(carPath string) error {
-	clientImportCar := ClientImportCar{
-		Path:  carPath,
-		IsCAR: true,
-	}
-	var params []interface{}
-	params = append(params, clientImportCar)
-	jsonRpcParams := LotusJsonRpcParams{
-		JsonRpc: LOTUS_JSON_RPC_VERSION,
-		Method:  LOTUS_CLIENT_IMPORT_CAR,
-		Params:  params,
-		Id:      LOTUS_JSON_RPC_ID,
-	}
-	client.HttpGet(config.GetUserConfig().LotusClientApiUrl, config.GetUserConfig().LotusClientAccessToken, jsonRpcParams)
-	return nil
-}
-
-func LotusRpcClientRetrieve(minerId string, payloadCid string, outputPath string) error {
-	clientRetrieveDealParamDataPartOne := ClientRetrieveDealParamDataPartOne{
-		Root: Cid{
-			Cid: payloadCid,
-		},
-		Size:        42,
-		Total:       "0",
-		UnsealPrice: "0",
-		Client:      minerId,
-		Miner:       minerId,
-	}
-	clientRetrieveDealParamDataPartTwo := ClientRetrieveDealParamDataPartTwo{
-		Path:  outputPath,
-		IsCAR: false,
-	}
-	var params []interface{}
-	params = append(params, clientRetrieveDealParamDataPartOne, clientRetrieveDealParamDataPartTwo)
-	jsonRpcParams := LotusJsonRpcParams{
-		JsonRpc: LOTUS_JSON_RPC_VERSION,
-		Method:  LOTUS_CLIENT_Retrieve_DEAL,
-		Params:  params,
-		Id:      LOTUS_JSON_RPC_ID,
-	}
-	response := client.HttpGet(config.GetUserConfig().LotusClientApiUrl, config.GetUserConfig().LotusClientAccessToken, jsonRpcParams)
-	if response == "" {
-		err := fmt.Errorf("failed to retrieve data %s from miner %s, no response", payloadCid, minerId)
-		logs.GetLogger().Error(err)
-		return err
-	}
-
-	lotusJsonRpcResult := &LotusJsonRpcResult{}
-	err := json.Unmarshal([]byte(response), lotusJsonRpcResult)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return err
-	}
-	if lotusJsonRpcResult.Error != nil {
-		err := fmt.Errorf("failed to retrieve data %s from miner %s, message: %s", payloadCid, minerId, lotusJsonRpcResult.Error.Message)
-		logs.GetLogger().Error(err)
-		return err
-	}
-	return err
-}
-
-func GetBackupPlanInfo(db *leveldb.DB, backupPlanId int) (VolumeBackupJobPlan, error) {
-	backupPlansKey := TableVolumeBackupPlan
-	//check if key exists
-	has, err := db.Has([]byte(backupPlansKey), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return VolumeBackupJobPlan{}, err
-	}
-	if has == false {
-		return VolumeBackupJobPlan{}, errors.New(KeyNotInLevelDb)
-	}
-	backupPlans, err := db.Get([]byte(backupPlansKey), nil)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return VolumeBackupJobPlan{}, err
-	}
-	data := VolumeBackupJobPlans{}
-	err = json.Unmarshal(backupPlans, &data)
-	if err != nil {
-		logs.GetLogger().Error(err)
-		return VolumeBackupJobPlan{}, err
-	}
-	for i, v := range data.VolumeBackupJobPlans {
-		if v.BackupPlanId == backupPlanId {
-			return data.VolumeBackupJobPlans[i], err
-		}
-	}
-	return VolumeBackupJobPlan{}, err
 }
 
 type LotusJsonRpcResult struct {

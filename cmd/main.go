@@ -20,7 +20,6 @@ package cmd
 import (
 	"github.com/joho/godotenv"
 	"github.com/minio/cli"
-	sysconfig "github.com/minio/minio/config"
 	"github.com/minio/minio/internal/config"
 	"github.com/minio/minio/logs"
 	"github.com/minio/minio/scheduler"
@@ -170,7 +169,7 @@ func Main(args []string) {
 	appName := filepath.Base(args[0])
 
 	initConfigAndLog()
-	initUserConfig(sysconfig.GetSysConfig().StandAlone)
+	initUserConfig(false)
 	scheduler.SendDealScheduler()
 	scheduler.BackupScheduler()
 	scheduler.RebuildScheduler()
@@ -184,9 +183,9 @@ func Main(args []string) {
 }
 
 func initUserConfig(standAlone bool) {
-	if standAlone {
+	/*	if standAlone {
 		LoadEnv()
-	}
+	}*/
 	swanAddress := os.Getenv("SWAN_ADDRESS")
 	fs3VolumeAddress := os.Getenv("FS3_VOLUME_ADDRESS")
 	fs3WalletAddress := os.Getenv("FS3_WALLET_ADDRESS")
@@ -217,5 +216,5 @@ func LoadEnv() {
 
 func initConfigAndLog() {
 	logs.InitLogger()
-	sysconfig.InitSysConfig("")
+	//sysconfig.InitSysConfig("")
 }

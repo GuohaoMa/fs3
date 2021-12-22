@@ -7,8 +7,8 @@ import (
 	"github.com/codingsince1985/checksum"
 	clientmodel "github.com/filswan/go-swan-client/model"
 	"github.com/filswan/go-swan-client/subcommand"
-	"github.com/filswan/go-swan-lib/client"
 	"github.com/filswan/go-swan-lib/client/lotus"
+	"github.com/filswan/go-swan-lib/client/web"
 	libconstants "github.com/filswan/go-swan-lib/constants"
 	libmodel "github.com/filswan/go-swan-lib/model"
 	libutils "github.com/filswan/go-swan-lib/utils"
@@ -239,7 +239,7 @@ func BackupVolumeJobs(volumeBackupRequests []VolumeBackupRequest) error {
 		confUpload := &clientmodel.ConfUpload{
 			StorageServerType:           libconstants.STORAGE_SERVER_TYPE_IPFS_SERVER,
 			IpfsServerDownloadUrlPrefix: config.GetUserConfig().IpfsGateway,
-			IpfsServerUploadUrl:         config.GetUserConfig().IpfsApiAddress,
+			IpfsServerUploadUrlPrefix:   config.GetUserConfig().IpfsApiAddress,
 			OutputDir:                   confCar.OutputDir,
 			InputDir:                    confCar.OutputDir,
 		}
@@ -743,7 +743,7 @@ func LotusRpcClientImportCar(carPath string) error {
 		Params:  params,
 		Id:      LOTUS_JSON_RPC_ID,
 	}
-	client.HttpGet(config.GetUserConfig().LotusClientApiUrl, config.GetUserConfig().LotusClientAccessToken, jsonRpcParams)
+	web.HttpGet(config.GetUserConfig().LotusClientApiUrl, config.GetUserConfig().LotusClientAccessToken, jsonRpcParams)
 	return nil
 }
 
