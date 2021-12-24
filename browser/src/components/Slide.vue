@@ -36,21 +36,21 @@
                 </el-row>
             </div>
             <div class="fs3_backup">
-                <!-- <div class="introduce">
+                <div class="introduce">
                     <router-link :to="{name: 'backup'}" :class="{'active': introduceColor}">FS3 Backup</router-link>
                 </div>
                 <div class="introRouter">
                     <router-link :to="{name: 'my_account_dashboard'}" :class="{'active': activeTree == '2'}">Dashboard</router-link>
                     <router-link :to="{name: 'my_account_myPlans'}" :class="{'active': activeTree == '3'}">Backup Plans</router-link>
                     <router-link :to="{name: 'my_account_jobs'}" :class="{'active': activeTree == '4'}">Jobs</router-link>
-                </div> -->
+                </div>
                 <!-- :default-checked-keys="activeTree" -->
                 <!-- <el-tree :data="dataBackup" :props="defaultProps" @node-click="handleNodeClick"
                     node-key="id" ref="my-tree" default-expand-all
                     :default-expanded-keys="activeTree?[1]:[]"
                     :current-node-key="activeTree"></el-tree> -->
                 <div class="introduce">
-                    <a href="https://docs.filswan.com/fs3/fs3-user-guide" target="_blank">User Guide</a>
+                    <a href="https://docs.filswan.com/fs3/fs3-user-guide" target="_blank">Documentation</a>
                 </div>
 
             </div>
