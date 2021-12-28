@@ -3552,7 +3552,7 @@ func (web *webAPIHandlers) SendDeal(w http.ResponseWriter, r *http.Request) {
 
 	//sourceBucketPath := filepath.Join(fs3VolumeAddress, bucket)
 	sourceFilePath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket, object)
-	sourceFilePathInContainer := filepath.Join(os.Getenv("FS3_WALLET_ADDRESS"), bucket, object)
+	sourceFilePathInContainer := filepath.Join(os.Getenv("FS3_VOLUME_ADDRESS"), bucket, object)
 	// send online deal to lotus
 	filWallet := config.GetUserConfig().Fs3WalletAddress
 	if filWallet == "" {
@@ -3636,6 +3636,7 @@ func (web *webAPIHandlers) SendDeal(w http.ResponseWriter, r *http.Request) {
 	}
 	dealConfig.Duration = durationInt
 	dealConfig.SenderWallet = filWallet
+	dealConfig.SkipConfirmation = true
 	priceDecimal, err := decimal.NewFromString(onlineDealRequest.Price)
 	relativeEpoch, err := strconv.Atoi(os.Getenv("RELATIVE_EPOCH_FROM_MAIN_NETWORK"))
 	if err != nil {
