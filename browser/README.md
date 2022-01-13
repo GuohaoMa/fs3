@@ -24,7 +24,7 @@ $ npm run release:calibration
 $ npm run release:prod
 ```
 
-The build artifacts will be stored in the `dist/` directory.
+The build artifacts will be stored in the `release/` directory.
 
 ## Further help
 
