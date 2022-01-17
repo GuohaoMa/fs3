@@ -13,7 +13,7 @@
                     @input="searchBucketFun">
                 </el-input>
                 <el-row>
-                    <div class="title" v-if="minioListBucketsAll.buckets.length>0">My Files</div>
+                    <div class="title" v-if="minioListBucketsAll.buckets&&minioListBucketsAll.buckets.length>0">My Files</div>
                     <el-col :span="24" v-for="(item, index) in minioListBucketsAll.buckets" :key="index" :class="{'active': item.name == currentBucket && allActive}" @click.native="getListBucket(item.name, true)">
                         <div>
                             <i class="iconfont icon-harddriveyingpan"></i>
@@ -200,6 +200,7 @@ export default {
       menuToggleStreth(stretch) {
         this.menuStretch = stretch
         this.$emit('getMenuStretch', stretch);
+        console.log(stretch, typeof stretch)
       },
       logout() {
         var _this = this;
