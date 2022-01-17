@@ -32,7 +32,7 @@
                     <a href="https://filswan.medium.com/" target="_block"><img :src="share_img1" alt=""></a>
                     <a href="https://twitter.com/filswan1" target="_block"><img :src="share_img2" alt=""></a>
                     <a href="https://github.com/filswan" target="_block"><img :src="share_img3" alt=""></a>
-                    <a href="https://www.facebook.com/fil.swan" target="_block"><img :src="share_img5" alt=""></a>
+                    <a href="https://www.facebook.com/filswan.technology" target="_block"><img :src="share_img5" alt=""></a>
                     <a href="https://filswan.slack.com" target="_block"><img :src="share_img7" alt=""></a>
                     <a href="https://youtube.com/channel/UCcvrZdNqFWYl3FwfcHS9xIg" target="_block"><img :src="share_img8" alt=""></a>
                     <a href="https://t.me/filswan" target="_block"><img :src="share_img9" alt=""></a>
@@ -188,6 +188,7 @@ export default {
     methods: {
         getMenuStretch(stretch) {
             this.menuStretch = stretch
+            console.log(1, stretch, typeof stretch)
         },
         reload () {
             this.isRouterAlive = false;

@@ -3872,6 +3872,7 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sourceBucketPath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket)
+	sourceBucketPathInContainer := filepath.Join(os.Getenv("FS3_VOLUME_ADDRESS"), bucket)
 	outputBucketZipPath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket+"_deals.zip")
 	sourceBucketZipPath, err := ZipBucket(sourceBucketPath, outputBucketZipPath)
 	if err != nil {
@@ -3909,7 +3910,51 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 	}
 	outStr := strings.Fields(string(*dataCID))
 	dataCIDStr := outStr[len(outStr)-1]
-	dealCID, err := exec.Command("lotus", "client", "deal", "--from", filWallet, verifiedDeal, fastRetrieval, dataCIDStr, onlineDealRequest.MinerId, onlineDealRequest.Price, onlineDealRequest.Duration).Output()
+
+	//fileDesc,err := subcommand.SendDeals(confDeal)
+	fileDesc := new(libmodel.FileDesc)
+	fileDesc.DataCid = *dataCID
+	//pieceCid := lotusClient.LotusClientCalcCommP(sourceFilePath)
+	fileSize, err := DirSize(sourceBucketPathInContainer)
+	logs.GetLogger().Info("----------------------------------file size=", fileSize, "------------------------------------")
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
+	pieceSize, _ := libutils.CalculatePieceSize(fileSize)
+	logs.GetLogger().Info("----------------------------------piece size=", pieceSize, "------------------------------------")
+	//fileDesc.PieceCid = *pieceCid
+	dealConfig := new(libmodel.DealConfig)
+	if strings.ToLower(verifiedDeal) == "true" {
+		dealConfig.VerifiedDeal = true
+	} else {
+		dealConfig.VerifiedDeal = false
+	}
+	dealConfig.MinerFid = onlineDealRequest.MinerId
+	if strings.ToLower(fastRetrieval) == "true" {
+		dealConfig.FastRetrieval = true
+	} else {
+		dealConfig.FastRetrieval = false
+	}
+	dealConfig.TransferType = "online"
+	durationInt, err := strconv.Atoi(onlineDealRequest.Duration)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
+	dealConfig.Duration = durationInt
+	dealConfig.SenderWallet = filWallet
+	dealConfig.SkipConfirmation = true
+	priceDecimal, err := decimal.NewFromString(onlineDealRequest.Price)
+	relativeEpoch, err := strconv.Atoi(os.Getenv("RELATIVE_EPOCH_FROM_MAIN_NETWORK"))
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
+	dealCID, _, err := lotusClient.LotusClientStartDeal(*fileDesc, priceDecimal, pieceSize, *dealConfig, relativeEpoch)
+	logs.GetLogger().Info("----------------------------------deal cid(for dir)=", *dealCID, "------------------------------------")
+
+	//dealCID, err := exec.Command("lotus", "client", "deal", "--from", filWallet, verifiedDeal, fastRetrieval, dataCIDStr, onlineDealRequest.MinerId, onlineDealRequest.Price, onlineDealRequest.Duration).Output()
 	if err != nil {
 		noDealCidResponse := OnlineDealResponse{}
 		sendResponse := SendResponse{
@@ -3926,7 +3971,7 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 		w.Write(bodyByte)
 		return
 	}
-	dealCIDStr := string(dealCID)
+	dealCIDStr := *dealCID
 	dealCIDStr = strings.TrimSuffix(dealCIDStr, "\n")
 
 	timestamp := strconv.FormatInt(time.Now().UTC().UnixNano()/1000, 10)
