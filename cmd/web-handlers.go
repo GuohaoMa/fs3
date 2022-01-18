@@ -3872,9 +3872,14 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sourceBucketPath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket)
+	logs.GetLogger().Info("=================sourceBucketPath=", sourceBucketPath, "=======================")
 	sourceBucketPathInContainer := filepath.Join(os.Getenv("FS3_VOLUME_ADDRESS"), bucket)
-	outputBucketZipPath := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), bucket+"_deals.zip")
-	sourceBucketZipPath, err := ZipBucket(sourceBucketPath, outputBucketZipPath)
+	logs.GetLogger().Info("=================sourceBucketPathInContainer=", sourceBucketPathInContainer, "=======================")
+	zipFileName := bucket + "_deals.zip"
+	outputBucketZipPath := filepath.Join(os.Getenv("FS3_VOLUME_ADDRESS"), zipFileName)
+	logs.GetLogger().Info("=================outputBucketZipPath=", outputBucketZipPath, "=======================")
+	sourceBucketZipPath, err := ZipBucket(sourceBucketPathInContainer, outputBucketZipPath)
+	zipFilePathInHostedServer := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), zipFileName)
 	if err != nil {
 		writeWebErrorResponse(w, err)
 		logs.GetLogger().Error(err)
@@ -3890,7 +3895,7 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 		logs.GetLogger().Error(err)
 		return
 	}
-	dataCID, err := lotusClient.LotusClientImport(sourceBucketZipPath, false)
+	dataCID, err := lotusClient.LotusClientImport(zipFilePathInHostedServer, false)
 	//dataCID, err := ExecCommand(commandLine)
 	if err != nil {
 		noDataCidResponse := OnlineDealResponse{}
