@@ -3875,14 +3875,50 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 	logs.GetLogger().Info("=================sourceBucketPath=", sourceBucketPath, "=======================")
 	sourceBucketPathInContainer := filepath.Join(os.Getenv("FS3_VOLUME_ADDRESS"), bucket)
 	logs.GetLogger().Info("=================sourceBucketPathInContainer=", sourceBucketPathInContainer, "=======================")
-	zipFileName := bucket + "_deals.zip"
-	outputBucketZipPath := filepath.Join(os.Getenv("FS3_VOLUME_ADDRESS"), zipFileName)
+	zipFileName := bucket + "_" + strconv.FormatInt(libutils.GetEpochInMillis(), 10) + "_deals.zip"
+	//outputBucketZipPath := filepath.Join(os.Getenv("FS3_VOLUME_ADDRESS"), zipFileName)
+	outputBucketZipPath := filepath.Join(os.Getenv("FS3_VOLUME_ADDRESS"), ".zip")
 	logs.GetLogger().Info("=================outputBucketZipPath=", outputBucketZipPath, "=======================")
-	sourceBucketZipPath, err := ZipBucket(sourceBucketPathInContainer, outputBucketZipPath)
-	zipFilePathInHostedServer := filepath.Join(os.Getenv("HOSTED_FILE_PATH"), zipFileName)
+
+	exits, err := PathExists(outputBucketZipPath)
 	if err != nil {
-		writeWebErrorResponse(w, err)
 		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+	if !exits {
+		err = os.Mkdir(outputBucketZipPath, 0777)
+		if err != nil {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+		err = os.Chmod(outputBucketZipPath, 0777)
+		if err != nil {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+	outputBucketZipFilePathAndZipFileName := filepath.Join(outputBucketZipPath, zipFileName)
+	logs.GetLogger().Info("=================outputBucketZipFilePathAndZipFileName=", outputBucketZipFilePathAndZipFileName, "=======================")
+	sourceBucketZipPath, err := ZipBucket(sourceBucketPathInContainer, outputBucketZipFilePathAndZipFileName)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
+	zipFilePathInHostedServer := filepath.Join(filepath.Join(os.Getenv("HOSTED_FILE_PATH"), ".zip"), zipFileName)
+	logs.GetLogger().Info("=================zipFilePathInHostedServer=", zipFilePathInHostedServer, "=======================")
+	err = os.Chmod(outputBucketZipFilePathAndZipFileName, 0777)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
 		return
 	}
 
@@ -3896,8 +3932,10 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dataCID, err := lotusClient.LotusClientImport(zipFilePathInHostedServer, false)
+	logs.GetLogger().Info("=================dataCID=", *dataCID, "=======================")
 	//dataCID, err := ExecCommand(commandLine)
 	if err != nil {
+		logs.GetLogger().Error(err)
 		noDataCidResponse := OnlineDealResponse{}
 		sendResponse := SendResponse{
 			Data:    noDataCidResponse,
@@ -3913,7 +3951,7 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 		w.Write(bodyByte)
 		return
 	}
-	outStr := strings.Fields(string(*dataCID))
+	outStr := strings.Fields(*dataCID)
 	dataCIDStr := outStr[len(outStr)-1]
 
 	//fileDesc,err := subcommand.SendDeals(confDeal)
@@ -3951,12 +3989,21 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 	dealConfig.SenderWallet = filWallet
 	dealConfig.SkipConfirmation = true
 	priceDecimal, err := decimal.NewFromString(onlineDealRequest.Price)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		return
+	}
 	relativeEpoch, err := strconv.Atoi(os.Getenv("RELATIVE_EPOCH_FROM_MAIN_NETWORK"))
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return
 	}
 	dealCID, _, err := lotusClient.LotusClientStartDeal(*fileDesc, priceDecimal, pieceSize, *dealConfig, relativeEpoch)
+	if err != nil {
+		logs.GetLogger().Error(err)
+		writeWebErrorResponse(w, err)
+		return
+	}
 	logs.GetLogger().Info("----------------------------------deal cid(for dir)=", *dealCID, "------------------------------------")
 
 	//dealCID, err := exec.Command("lotus", "client", "deal", "--from", filWallet, verifiedDeal, fastRetrieval, dataCIDStr, onlineDealRequest.MinerId, onlineDealRequest.Price, onlineDealRequest.Duration).Output()
@@ -4010,6 +4057,12 @@ func (web *webAPIHandlers) SendDeals(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeWebErrorResponse(w, err)
 		logs.GetLogger().Error(err)
+	}
+	if _, err := os.Stat(outputBucketZipPath); err == nil {
+		err = os.Remove(outputBucketZipPath)
+		if err != nil {
+			logs.GetLogger().Error(err)
+		}
 	}
 	return
 }
@@ -4300,7 +4353,7 @@ func ZipBucket(sourceBucketPath string, outputBucketZipPath string) (string, err
 		logs.GetLogger().Error(err)
 		return "", err
 	}
-	outFile, err := os.OpenFile(expandedDir, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0660)
+	outFile, err := os.OpenFile(expandedDir, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0777)
 	if err != nil {
 		logs.GetLogger().Error(err)
 		return "", err
@@ -7530,4 +7583,15 @@ func (web *webAPIHandlers) Test(w http.ResponseWriter, r *http.Request) {
 	db.AutoMigrate(&VolumeBackupMetadataCsv{})
 	db.AutoMigrate(&VolumeBackupTaskCsv{})
 	return
+}
+
+func PathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
