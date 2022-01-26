@@ -188,7 +188,6 @@ export default {
     methods: {
         getMenuStretch(stretch) {
             this.menuStretch = stretch
-            console.log(1, stretch, typeof stretch)
         },
         reload () {
             this.isRouterAlive = false;
