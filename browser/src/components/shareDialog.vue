@@ -241,7 +241,7 @@ export default {
             },
             rules: {
                minerId: [
-                 { required: true, message: 'Please enter Provider ID', trigger: 'blur' }
+                 { required: true, message: 'Please enter Provider ID', trigger: ['blur', 'change'] }
                ],
                price: [
                  { required: true, message: 'Please enter Price', trigger: ['blur', 'change'] }
