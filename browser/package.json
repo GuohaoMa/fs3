@@ -12,7 +12,7 @@
     "release:prod": "cross-env NODE_ENV=production env_config=prod node build/build.js"
   },
   "dependencies": {
-    "axios": "^0.20.0",
+    "axios": "^0.25.0",
     "cross-env": "^7.0.3",
     "echarts": "^4.9.0",
     "element-ui": "^2.13.2",
@@ -62,7 +62,7 @@
     "rimraf": "^2.6.0",
     "sass-loader": "^7.3.1",
     "semver": "^5.3.0",
-    "shelljs": "^0.7.6",
+    "shelljs": "^0.8.5",
     "uglifyjs-webpack-plugin": "^1.1.1",
     "url-loader": "^0.5.8",
     "vue-loader": "^13.3.0",
