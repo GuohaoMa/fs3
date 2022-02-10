@@ -86,8 +86,8 @@
                       <template slot="label">
                           <span style="color: #F56C6C;margin-right: 4px;">*</span>Duration:
                       </template>
-                      <el-input v-model="ruleForm.duration" onkeyup="value=value.replace(/^(0+)|[^\d]+/g,'')"></el-input> Day
-                      <p class="_error" v-if="ruleForm.duration_tip">Duration for keeping the backup needs to be in the range of 180 to 540</p>
+                      <el-input v-model="ruleForm.duration" onkeyup="value=value.replace(/^(0+)|[^\d]+/g,'')" @blur="calculation"></el-input> Day
+                      <p class="_error" v-if="ruleForm.duration_tip">Duration must be in the range of 180-540 days</p>
                     </el-form-item>
                     <el-form-item label="Verified-Deal:" prop="verified">
                       <el-radio v-model="ruleForm.verified" label="1">True</el-radio>
@@ -212,13 +212,6 @@ export default {
                 return callback(new Error('Please enter Duration'));
             }
             setTimeout(() => {
-                if (value < 180) {
-                    that.calculation(1);
-                }else if (value > 540) {
-                    that.calculation(2);
-                } else {
-                    that.calculation()
-                }
                 callback()
             }, 100);
         };
@@ -331,16 +324,18 @@ export default {
     },
     methods: {
       async calculation(type){
-          if(type && type == 2){
-              this.ruleForm.duration = '540'
-          }else if(type && type == 1){
-              this.ruleForm.duration = '180'
+        let _this = this
+          if(Number(_this.ruleForm.duration) > 540){
+              _this.ruleForm.duration = '540'
+          }else if(Number(_this.ruleForm.duration) < 180){
+              _this.ruleForm.duration = '180'
           }else{
             return false
           }
-          this.ruleForm.duration_tip = true
-          await this.timeout(3000)
-          this.ruleForm.duration_tip = false
+          _this.ruleForm.duration_tip = true
+          await _this.timeout(3000)
+          _this.ruleForm.duration_tip = false
+
       },
       timeout (delay) {
           return new Promise((res) => setTimeout(res, delay))
