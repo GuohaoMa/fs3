@@ -208,6 +208,7 @@ export default {
     inject:['reload'],
     data() {
         var validateDuration = (rule, value, callback) => {
+            value = value.replace(/[^\d.]/g,'')
             if (!value) {
                 return callback(new Error('Please enter Duration'));
             }
@@ -351,7 +352,7 @@ export default {
       inputBlur(val, type){
         if(type == 1){
           const regexp=/(?:\.0*|(\.\d+?)0+)$/
-          val = val.replace(regexp,'$1')
+          val = val.replace(/[^\d.]/g,'').replace(regexp,'$1')
           if(val.indexOf('.') > -1){
             let array = val.split('.')
             array[0] = array[0]>0 ? array[0].replace(/\b(0+)/gi,"") : '0'
@@ -476,7 +477,7 @@ export default {
                 "FastRetrieval": _this.ruleForm.fastRetirval == '2'? 'false' : 'true',
                 "MinerId": _this.ruleForm.minerId,
                 "Price": _this.ruleForm.price,
-                "Duration": String(_this.ruleForm.duration*24*60*2)   //（The number of days entered by the user on the UI needs to be converted into epoch to the backend. For example, 10 days is 10*24*60*2）
+                "Duration": String(_this.ruleForm.duration.replace(/[^\d.]/g,'')*24*60*2)   //（The number of days entered by the user on the UI needs to be converted into epoch to the backend. For example, 10 days is 10*24*60*2）
             }
             axios.post(postUrl, minioDeal, {headers: {
                  'Authorization':"Bearer "+ _this.$store.getters.accessToken
