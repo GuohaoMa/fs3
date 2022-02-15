@@ -3009,7 +3009,7 @@ func (web *webAPIHandlers) RetrieveDeal(w http.ResponseWriter, r *http.Request) 
 	}
 	defer db.Close()
 	fileDealKey := bucket + "_" + object
-	fileDeals, err := db.Get([]byte(fileDealKey), nil)
+	/*fileDeals, err := db.Get([]byte(fileDealKey), nil)
 	if err != nil || fileDeals == nil {
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
@@ -3021,8 +3021,34 @@ func (web *webAPIHandlers) RetrieveDeal(w http.ResponseWriter, r *http.Request) 
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
 		return
+	}*/
+	//check if key in leveldb
+	iter := db.NewIterator(nil, nil)
+	keyExist := false
+	for iter.Next() {
+		key := iter.Key()
+		if string(key) == fileDealKey {
+			keyExist = true
+		}
 	}
+	iter.Release()
+	err = iter.Error()
 
+	data := BucketFileList{FileName: fileDealKey}
+	if keyExist {
+		fileDeals, err := db.Get([]byte(fileDealKey), nil)
+		if err != nil {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+		err = json.Unmarshal(fileDeals, &data)
+		if err != nil {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+	}
 	retrieveResponse := RetrieveResponse{Data: data, Status: SuccessResponseStatus, Message: SuccessResponseStatus}
 	dataBytes, err := json.Marshal(retrieveResponse)
 	if err != nil {
@@ -3353,7 +3379,7 @@ func (web *webAPIHandlers) RetrieveDeals(w http.ResponseWriter, r *http.Request)
 	}
 	defer db.Close()
 
-	bucketDeals, err := db.Get([]byte(bucket), nil)
+	/*bucketDeals, err := db.Get([]byte(bucket), nil)
 	if err != nil || bucketDeals == nil {
 		writeWebErrorResponse(w, err)
 		logs.GetLogger().Error(err)
@@ -3365,6 +3391,33 @@ func (web *webAPIHandlers) RetrieveDeals(w http.ResponseWriter, r *http.Request)
 		logs.GetLogger().Error(err)
 		writeWebErrorResponse(w, err)
 		return
+	}*/
+
+	iter := db.NewIterator(nil, nil)
+	keyExist := false
+	for iter.Next() {
+		key := iter.Key()
+		if string(key) == bucket {
+			keyExist = true
+		}
+	}
+	iter.Release()
+	err = iter.Error()
+
+	data := BucketDealList{BucketName: bucket}
+	if keyExist {
+		bucketDeals, err := db.Get([]byte(bucket), nil)
+		if err != nil {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
+		err = json.Unmarshal(bucketDeals, &data)
+		if err != nil {
+			logs.GetLogger().Error(err)
+			writeWebErrorResponse(w, err)
+			return
+		}
 	}
 
 	retrieveResponse := RetrieveBucketResponse{Data: data, Status: SuccessResponseStatus, Message: SuccessResponseStatus}
