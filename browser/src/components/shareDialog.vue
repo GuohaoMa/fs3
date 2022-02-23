@@ -506,6 +506,7 @@ export default {
                 "Duration": String(_this.ruleForm.duration.replace(/[^\d.]/g,'')*24*60*2)   //（The number of days entered by the user on the UI needs to be converted into epoch to the backend. For example, 10 days is 10*24*60*2）
             }
             _this.ruleForm.request_status = true
+            console.log('start', _this.ruleForm.request_status)
             axios.post(postUrl, minioDeal, {headers: {
                  'Authorization':"Bearer "+ _this.$store.getters.accessToken
             }}).then(async (response) => {
@@ -522,6 +523,7 @@ export default {
                 _this.loadShare = false
                 await _this.timeout(5000)
                 _this.ruleForm.request_status = false
+                console.log('5s', _this.ruleForm.request_status)
             }).catch(function (error) {
                 console.log(error);
                 _this.loadShare = false
