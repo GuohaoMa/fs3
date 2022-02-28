@@ -84,7 +84,7 @@
                     </el-form-item>
                     <el-form-item label="Price:" prop="price">
                       <el-input v-model="ruleForm.price" onkeyup="value=value.replace(/^\D*(\d*(?:\.\d{0,18})?).*$/g, '$1')" @blur="inputBlur(ruleForm.price, 1)" @input="inputChange"></el-input> FIL
-                      <p class="el-form-item__error" v-if="ruleForm.price_tip">The minimum price is 0.000000000000000001FIL</p>
+                      <!-- <p class="el-form-item__error" v-if="ruleForm.price_tip">The minimum price is 0.000000000000000001FIL</p> -->
                     </el-form-item>
                     <el-form-item prop="duration">
                       <template slot="label">
@@ -364,9 +364,13 @@ export default {
           if(val.indexOf('.') > -1){
             let array = val.split('.')
             array[0] = array[0]>0 ? array[0].replace(/\b(0+)/gi,"") : '0'
+            if(!array[1]) {
+              this.ruleForm.price = array[0] 
+              return false
+            }
             this.ruleForm.price =  array[0] + '.' + array[1]
           }else{
-            this.ruleForm.price =  val.replace(/\b(0+)/gi,"")
+            this.ruleForm.price = val > 0 ? val.replace(/\b(0+)/gi,"") : '0'
           }
           this.ruleForm.price_tip = false
         }else if(type == 2){
@@ -506,7 +510,6 @@ export default {
                 "Duration": String(_this.ruleForm.duration.replace(/[^\d.]/g,'')*24*60*2)   //（The number of days entered by the user on the UI needs to be converted into epoch to the backend. For example, 10 days is 10*24*60*2）
             }
             _this.ruleForm.request_status = true
-            console.log('start', _this.ruleForm.request_status)
             axios.post(postUrl, minioDeal, {headers: {
                  'Authorization':"Bearer "+ _this.$store.getters.accessToken
             }}).then(async (response) => {
@@ -523,7 +526,6 @@ export default {
                 _this.loadShare = false
                 await _this.timeout(5000)
                 _this.ruleForm.request_status = false
-                console.log('5s', _this.ruleForm.request_status)
             }).catch(function (error) {
                 console.log(error);
                 _this.loadShare = false

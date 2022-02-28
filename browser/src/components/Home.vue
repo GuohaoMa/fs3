@@ -656,6 +656,7 @@ export default {
         let _this = this
         _this.getData()
         localStorage.removeItem('addrWeb')
+        console.log('update time: 2022-02-28')
     },
 };
 </script>
