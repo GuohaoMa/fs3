@@ -30,7 +30,7 @@
             <div class="fes-icon">
                 <div class="fes-icon-logo">
                     <a href="https://filswan.medium.com/" target="_block"><img :src="share_img1" alt=""></a>
-                    <a href="https://discord.gg/MSXGzVsSYf" target="_block"><img :src="share_img10" alt=""></a>
+                    <a href="https://discord.com/invite/KKGhy8ZqzK" target="_block"><img :src="share_img10" alt=""></a>
                     <a href="https://twitter.com/0xfilswan" target="_block"><img :src="share_img2" alt=""></a>
                     <a href="https://github.com/filswan" target="_block"><img :src="share_img3" alt=""></a>
                     <!-- <a href="https://www.facebook.com/filswan.technology" target="_block"><img :src="share_img5" alt=""></a>
@@ -656,7 +656,7 @@ export default {
         let _this = this
         _this.getData()
         localStorage.removeItem('addrWeb')
-        console.log('update time: 2022-03-09')
+        console.log('update time: 2022-03-25')
     },
 };
 </script>
